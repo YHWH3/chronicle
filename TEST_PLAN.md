@@ -43,8 +43,34 @@
 ## TC8 — SPEAK mode (emulator caveat)
 - Tap SPEAK → big ring record button; tap → RECORD_AUDIO permission dialog → "While using the app".
 - **Assert:** recording UI: waveform strip, elapsed timer "0:0X" (brass), stop-square button, "TAP TO KEEP" + "DISCARD".
-- Emulator: SpeechRecognizer likely unavailable �� live transcript may stay empty (accepted). If MediaRecorder produces a file, tap stop ("Tap to keep") → entry lands in "EARLIER TODAY" as "A voice note" with mic icon; Journal shows play control.
+- Emulator: SpeechRecognizer likely unavailable — live transcript may stay empty (accepted). If MediaRecorder produces a file, tap stop ("Tap to keep") → entry lands in "EARLIER TODAY" as "A voice note" with mic icon; Journal shows play control.
 - If app crashes on record start (no audio source) → flag as finding.
 
 ## TC9 — Design sweep (throughout)
 - Light "paper" canvas; Fraunces serif headings; Inter body; JetBrains Mono metadata; single brass accent; hairline rules; NO gradients/card-shadows. Flag any overlap, truncation, misalignment.
+
+## TC10 — Settings: The ear (STT engines) [new in 209f5a8]
+- Settings → "The ear — speech to text" section.
+- **Assert:** chips "SYSTEM (ON-DEVICE)" + "PARAKEET TDT 0.6B"; System selected → italic "Android's recognizer, kept on-device. Nothing to download."
+- Tap PARAKEET → italic "NVIDIA's Parakeet — sharper ears, transcribes when the take ends."; ModelRow card appears: title "Parakeet TDT 0.6B · speech to text", meta "~250 MB", "GET IT" action, "Model download URL" field.
+- Tap GET IT once → state flips to Downloading: "%"/"N MB" in brass + "CANCEL" + hairline progress bar. Tap CANCEL immediately → back to "GET IT" (do NOT wait for 250MB on TCG).
+
+## TC11 — Settings: The mind (backends) [new in 209f5a8]
+- Settings → "The mind — words into meaning".
+- **Assert:** chips "QUIET PARSER" / "ON-DEVICE MODEL" / "OPENROUTER" / "CUSTOM ENDPOINT"; Quiet parser default → "A deterministic reader — fast, private, no model needed."
+- ON-DEVICE → "Llama 3.2 3B runs entirely on this phone. Words never leave." + ModelRow "Llama 3.2 3B · on-device mind" / "~2 GB" + gated note "accept Meta's licence on huggingface.co". Tap GET IT → Downloading UI → CANCEL.
+- OPENROUTER → masked "OpenRouter API key (sk-or-…)" field + "FREE MODELS" chips; type a dummy key → masks; pick a model chip.
+- CUSTOM → fields "Base URL (https://api.openai.com/v1)", "Model (gpt-4o-mini, …)", "API key (optional for some endpoints)" (last masked).
+- Back to QUIET PARSER → all panels collapse, italic baseline text.
+
+## TC12 — Processing hint + byline [new in 209f5a8]
+- WRITE → keep an entry → watch for brass "READING YOUR WORDS…" hint before confirmation; confirmation may carry "read by Quiet parser" byline.
+- **Assert (edge):** after save, if mind backend is Quiet parser, task extraction still works (hard fallback).
+
+## Edge cases (carry-over)
+- KEEP with empty draft → no entry created.
+- Double-tap KEEP → exactly one entry (saving guard).
+- Force-stop + relaunch → entries/tasks persist; settings persist.
+- Deny RECORD_AUDIO → SPEAK tap degrades gracefully (no crash).
+- Task done toggle → strikethrough under "DONE"; entry delete → gone from Today+Journal.
+- Manual task with "No reminder" chip → saves without bell icon.
