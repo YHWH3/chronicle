@@ -17,7 +17,7 @@ import java.io.File
  * Records voice notes to .m4a under filesDir/recordings and exposes a rolling
  * amplitude window for the waveform — [amplitudes] keeps the last [BARS] bars.
  */
-class VoiceRecorder(private val context: Context, private val scope: CoroutineScope) {
+class VoiceRecorder(private val context: Context, private val scope: CoroutineScope) : TakeRecorder {
 
     private var recorder: MediaRecorder? = null
     private var pollJob: Job? = null
@@ -25,14 +25,14 @@ class VoiceRecorder(private val context: Context, private val scope: CoroutineSc
     private var startedAt: Long = 0
 
     private val _amplitudes = MutableStateFlow<List<Float>>(List(BARS) { 0f })
-    val amplitudes: StateFlow<List<Float>> = _amplitudes
+    override val amplitudes: StateFlow<List<Float>> = _amplitudes
 
     private val _elapsedMs = MutableStateFlow(0L)
-    val elapsedMs: StateFlow<Long> = _elapsedMs
+    override val elapsedMs: StateFlow<Long> = _elapsedMs
 
-    val isRecording: Boolean get() = recorder != null
+    override val isRecording: Boolean get() = recorder != null
 
-    fun start(): File {
+    override fun start(): File {
         val dir = File(context.filesDir, "recordings").apply { mkdirs() }
         val file = File(dir, "note_${System.currentTimeMillis()}.m4a")
         outputFile = file
@@ -79,7 +79,7 @@ class VoiceRecorder(private val context: Context, private val scope: CoroutineSc
     }
 
     /** Stops and returns the file + duration, or null if nothing was captured. */
-    fun stop(): Pair<File, Long>? {
+    override fun stop(): Pair<File, Long>? {
         val file = outputFile ?: return null
         val r = recorder ?: return null
         val duration = System.currentTimeMillis() - startedAt
@@ -98,7 +98,7 @@ class VoiceRecorder(private val context: Context, private val scope: CoroutineSc
         return file to duration
     }
 
-    fun cancel() {
+    override fun cancel() {
         pollJob?.cancel()
         recorder?.let { r ->
             runCatching { r.stop() }

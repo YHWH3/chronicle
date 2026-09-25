@@ -197,6 +197,13 @@ object TaskExtractor {
         return LocalTime.of(h24, minute)
     }
 
+    /**
+     * Resolves a bare time expression ("tomorrow 5pm", "next week") — used by
+     * mind backends when a model returns natural language instead of ISO.
+     */
+    fun resolveTimeText(text: String, now: LocalDateTime): LocalDateTime? =
+        resolveTime(text, now).remindAt
+
     private fun polishTitle(raw: String): String {
         var t = raw.replace(Regex("""\s+"""), " ").trim()
         // Drop dangling connectives left behind by removed time phrases.

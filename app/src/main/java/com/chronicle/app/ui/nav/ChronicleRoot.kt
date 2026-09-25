@@ -105,8 +105,12 @@ fun ChronicleRoot(container: AppContainer) {
                         container.appContextRef(),
                         container.journalRepository,
                         container.taskRepository,
+                        container.prefsRepository,
                         container.voiceRecorder,
+                        container.wavRecorder,
                         container.transcriber,
+                        container.parakeetTranscriber,
+                        container.mindRepository,
                     )
                 })
                 TodayScreen(vm, onOpenSettings = { navController.navigate(Routes.SETTINGS) })
@@ -131,7 +135,11 @@ fun ChronicleRoot(container: AppContainer) {
             }
             composable(Routes.SETTINGS) {
                 val vm: SettingsViewModel = viewModel(factory = vmFactory {
-                    SettingsViewModel(container.appContextRef(), container.prefsRepository)
+                    SettingsViewModel(
+                        container.appContextRef(),
+                        container.prefsRepository,
+                        container.modelStore,
+                    )
                 })
                 SettingsScreen(vm, onBack = { navController.popBackStack() })
             }

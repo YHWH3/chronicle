@@ -4,24 +4,29 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.chronicle.app.data.JournalRepository
+import com.chronicle.app.data.MindBackend
 import com.chronicle.app.data.PrefsRepository
+import com.chronicle.app.data.SttEngine
 import com.chronicle.app.data.TaskRepository
 import com.chronicle.app.data.ThemeMode
 import com.chronicle.app.domain.JournalEntry
 import com.chronicle.app.domain.Story
 import com.chronicle.app.domain.StoryComposer
-import com.chronicle.app.domain.TaskExtractor
 import com.chronicle.app.domain.toDomain
 import com.chronicle.app.media.EntryPlayer
+import com.chronicle.app.media.ParakeetTranscriber
 import com.chronicle.app.media.SpeechTranscriber
+import com.chronicle.app.media.TakeRecorder
 import com.chronicle.app.media.VoiceRecorder
+import com.chronicle.app.media.WavRecorder
+import com.chronicle.app.mind.MindRepository
+import com.chronicle.app.mind.ModelKind
+import com.chronicle.app.mind.ModelState
+import com.chronicle.app.mind.ModelStore
 import com.chronicle.app.reminders.ReminderScheduler
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -54,14 +59,24 @@ data class TodayUiState(
     val todaysEntries: List<JournalEntry> = emptyList(),
     /** A save is in flight — guards against double-taps duplicating entries. */
     val saving: Boolean = false,
+    /** Which speech-to-text engine the user selected. */
+    val sttEngine: SttEngine = SttEngine.SYSTEM,
+    /** True while the mind model or transcription is chewing on the take. */
+    val processing: Boolean = false,
+    /** Name of the mind backend that handled the last capture (for the hint line). */
+    val mindLabel: String = "",
 )
 
 class TodayViewModel(
     private val context: Context,
     private val journalRepository: JournalRepository,
     private val taskRepository: TaskRepository,
+    private val prefsRepository: PrefsRepository,
     private val voiceRecorder: VoiceRecorder,
+    private val wavRecorder: WavRecorder,
     private val transcriber: SpeechTranscriber,
+    private val parakeetTranscriber: ParakeetTranscriber,
+    private val mindRepository: MindRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(TodayUiState(speechAvailable = transcriber.available))
@@ -76,17 +91,39 @@ class TodayViewModel(
             }
         }
         viewModelScope.launch {
-            combine(voiceRecorder.amplitudes, voiceRecorder.elapsedMs) { a, e -> a to e }
-                .collect { (a, e) ->
-                    _state.value = _state.value.copy(amplitudes = a, elapsedMs = e)
-                }
+            combine(
+                voiceRecorder.amplitudes, voiceRecorder.elapsedMs,
+                wavRecorder.amplitudes, wavRecorder.elapsedMs,
+            ) { a1, e1, a2, e2 ->
+                if (recordingRecorder === wavRecorder) a2 to e2 else a1 to e1
+            }.collect { (a, e) ->
+                _state.value = _state.value.copy(amplitudes = a, elapsedMs = e)
+            }
         }
         viewModelScope.launch {
             combine(transcriber.committed, transcriber.partial) { c, p ->
                 (c + p).filter { it.isNotBlank() }.joinToString(" ").trim()
             }.collect { t -> _state.value = _state.value.copy(liveTranscript = t) }
         }
+        viewModelScope.launch {
+            prefsRepository.prefs.collect { p ->
+                _state.value = _state.value.copy(sttEngine = p.sttEngine)
+            }
+        }
     }
+
+    /** The recorder for the selected engine — wav when Parakeet is installed. */
+    private fun activeRecorder(): TakeRecorder =
+        if (_state.value.sttEngine == SttEngine.PARAKEET && parakeetTranscriber.available) {
+            wavRecorder
+        } else {
+            voiceRecorder
+        }
+
+    private fun usesParakeet() = activeRecorder() === wavRecorder
+
+    /** The recorder handling the current take — chosen at record start. */
+    private var recordingRecorder: TakeRecorder? = null
 
     fun setMode(mode: CaptureMode) {
         if (_state.value.recording == RecordingState.RECORDING) return
@@ -105,8 +142,10 @@ class TodayViewModel(
         if (_state.value.recording == RecordingState.RECORDING) {
             finishRecording()
         } else {
-            voiceRecorder.start()
-            if (transcriber.available) transcriber.start()
+            val r = activeRecorder()
+            recordingRecorder = r
+            r.start()
+            if (!usesParakeet() && transcriber.available) transcriber.start()
             _state.value = _state.value.copy(
                 recording = RecordingState.RECORDING,
                 liveTranscript = "",
@@ -116,8 +155,10 @@ class TodayViewModel(
     }
 
     fun cancelRecording() {
-        voiceRecorder.cancel()
-        transcriber.destroyNow()
+        val r = recordingRecorder ?: activeRecorder()
+        recordingRecorder = null
+        r.cancel()
+        if (r !== wavRecorder) transcriber.destroyNow()
         _state.value = _state.value.copy(
             recording = RecordingState.IDLE,
             liveTranscript = "",
@@ -126,28 +167,49 @@ class TodayViewModel(
 
     private fun finishRecording() {
         if (_state.value.saving) return
-        val take = voiceRecorder.stop()
-        _state.value = _state.value.copy(recording = RecordingState.IDLE, saving = true)
+        val take = recordingRecorder?.stop() ?: activeRecorder().stop()
+        _state.value = _state.value.copy(
+            recording = RecordingState.IDLE,
+            saving = true,
+            processing = true,
+        )
 
         viewModelScope.launch {
+            val parakeetTake = recordingRecorder === wavRecorder
             // Waits briefly for the final recognition results before snapshotting.
-            transcriber.stop()
-            val transcript = transcriber.transcript.ifBlank { _state.value.liveTranscript }
+            val transcript = if (parakeetTake) {
+                take?.first?.let { file ->
+                    runCatching { parakeetTranscriber.transcribe(file) }.getOrElse { "" }
+                }.orEmpty()
+            } else {
+                transcriber.stop()
+                transcriber.transcript.ifBlank { _state.value.liveTranscript }
+            }
             try {
                 val (audioPath, duration) = take?.let { it.first.absolutePath to it.second } ?: (null to 0L)
                 if (transcript.isBlank() && audioPath == null) {
-                    _state.value = _state.value.copy(liveTranscript = "", saving = false)
+                    _state.value = _state.value.copy(
+                        liveTranscript = "",
+                        saving = false,
+                        processing = false,
+                    )
                     return@launch
                 }
                 val entryId = journalRepository.addVoice(transcript, audioPath, duration)
-                val created = materializeTasks(transcript, entryId)
+                val (created, mind) = materializeTasks(transcript, entryId)
                 _state.value = _state.value.copy(
                     liveTranscript = "",
                     saving = false,
-                    confirmation = confirmationText(created),
+                    processing = false,
+                    confirmation = confirmationText(created, mind?.reflection, mindByline(engine)),
+                    mindLabel = engine.label,
                 )
             } catch (t: Throwable) {
-                _state.value = _state.value.copy(liveTranscript = "", saving = false)
+                _state.value = _state.value.copy(
+                    liveTranscript = "",
+                    saving = false,
+                    processing = false,
+                )
             }
         }
     }
@@ -160,23 +222,31 @@ class TodayViewModel(
         viewModelScope.launch {
             try {
                 val entryId = journalRepository.addText(text)
-                val created = materializeTasks(text, entryId)
+                val (created, mind) = materializeTasks(text, entryId)
                 _state.value = _state.value.copy(
                     draftText = "",
                     saving = false,
-                    confirmation = confirmationText(created),
+                    processing = false,
+                    confirmation = confirmationText(created, mind?.reflection, mindByline(engine)),
+                    mindLabel = engine.label,
                 )
             } catch (t: Throwable) {
-                _state.value = _state.value.copy(saving = false)
+                _state.value = _state.value.copy(saving = false, processing = false)
             }
         }
     }
 
-    /** Turns the captured words into reminders. Returns how many were scheduled. */
-    private suspend fun materializeTasks(text: String, entryId: Long): Int {
-        val extracted = TaskExtractor.extract(text, LocalDateTime.now())
+    private var engine: com.chronicle.app.mind.MindEngine = com.chronicle.app.mind.DeterministicMind
+    /** Turns the captured words into reminders. Returns count + the mind's result. */
+    private suspend fun materializeTasks(
+        text: String,
+        entryId: Long,
+    ): Pair<Int, com.chronicle.app.mind.MindResult> {
+        if (text.isBlank()) return 0 to com.chronicle.app.mind.MindResult(emptyList())
+        val (result, resolved) = mindRepository.extract(text, LocalDateTime.now())
+        engine = resolved
         var reminders = 0
-        for (task in extracted) {
+        for (task in result.tasks) {
             val remindMs = task.remindAt?.toEpochMs()
             val id = taskRepository.add(task.title, remindMs, entryId)
             if (remindMs != null && remindMs > System.currentTimeMillis()) {
@@ -184,19 +254,31 @@ class TodayViewModel(
                 reminders++
             }
         }
-        return reminders
+        return reminders to result
     }
 
-    private fun confirmationText(reminders: Int): String = when (reminders) {
-        0 -> "Kept."
-        1 -> "Kept — 1 reminder set."
-        else -> "Kept — $reminders reminders set."
+    private fun mindByline(engine: com.chronicle.app.mind.MindEngine) =
+        "read by ${engine.label}"
+
+    private fun confirmationText(
+        reminders: Int,
+        reflection: String?,
+        byline: String,
+    ): String {
+        val base = when (reminders) {
+            0 -> "Kept."
+            1 -> "Kept — 1 reminder set."
+            else -> "Kept — $reminders reminders set."
+        }
+        val suffix = reflection?.take(90)?.let { " — $it" } ?: ""
+        return if (byline.isNotEmpty()) "$base$suffix\n$byline" else "$base$suffix"
     }
 
     override fun onCleared() {
         if (_state.value.recording == RecordingState.RECORDING) {
-            voiceRecorder.cancel()
-            transcriber.destroyNow()
+            val r = recordingRecorder ?: activeRecorder()
+            r.cancel()
+            if (r !== wavRecorder) transcriber.destroyNow()
         }
     }
 }
@@ -387,16 +469,52 @@ data class SettingsUiState(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val dailyNudgeEnabled: Boolean = false,
     val dailyNudgeMinutes: Int = 20 * 60,
+    val mindBackend: MindBackend = MindBackend.QUIET_PARSER,
+    val openRouterKey: String = "",
+    val openRouterModel: String = "",
+    val customBaseUrl: String = "",
+    val customModel: String = "",
+    val customKey: String = "",
+    val sttEngine: SttEngine = SttEngine.SYSTEM,
+    val parakeetUrl: String = "",
+    val llmUrl: String = "",
+    val models: Map<ModelKind, ModelState> = emptyMap(),
 )
 
 class SettingsViewModel(
     private val context: Context,
     private val prefsRepository: PrefsRepository,
+    private val modelStore: ModelStore,
 ) : ViewModel() {
 
-    val state: StateFlow<SettingsUiState> = prefsRepository.prefs
-        .map { SettingsUiState(it.themeMode, it.dailyNudgeEnabled, it.dailyNudgeMinutes) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
+    private val _state = MutableStateFlow(SettingsUiState())
+    val state: StateFlow<SettingsUiState> = _state
+
+    init {
+        viewModelScope.launch {
+            prefsRepository.prefs.collect { p ->
+                _state.value = _state.value.copy(
+                    themeMode = p.themeMode,
+                    dailyNudgeEnabled = p.dailyNudgeEnabled,
+                    dailyNudgeMinutes = p.dailyNudgeMinutes,
+                    mindBackend = p.mindBackend,
+                    openRouterKey = p.openRouterKey,
+                    openRouterModel = p.openRouterModel,
+                    customBaseUrl = p.customBaseUrl,
+                    customModel = p.customModel,
+                    customKey = p.customKey,
+                    sttEngine = p.sttEngine,
+                    parakeetUrl = p.parakeetUrl,
+                    llmUrl = p.llmUrl,
+                )
+            }
+        }
+        viewModelScope.launch {
+            modelStore.states.collect { m ->
+                _state.value = _state.value.copy(models = m)
+            }
+        }
+    }
 
     fun setThemeMode(mode: ThemeMode) {
         viewModelScope.launch { prefsRepository.setThemeMode(mode) }
@@ -419,4 +537,37 @@ class SettingsViewModel(
             }
         }
     }
+
+    fun setMindBackend(backend: MindBackend) {
+        viewModelScope.launch { prefsRepository.setMindBackend(backend) }
+    }
+
+    fun setSttEngine(engine: SttEngine) {
+        viewModelScope.launch { prefsRepository.setSttEngine(engine) }
+    }
+
+    fun setOpenRouter(key: String, model: String) {
+        viewModelScope.launch { prefsRepository.setOpenRouter(key, model) }
+    }
+
+    fun setCustomEndpoint(baseUrl: String, model: String, key: String) {
+        viewModelScope.launch { prefsRepository.setCustomEndpoint(baseUrl, model, key) }
+    }
+
+    fun setModelUrls(parakeetUrl: String, llmUrl: String) {
+        viewModelScope.launch { prefsRepository.setModelUrls(parakeetUrl, llmUrl) }
+    }
+
+    fun installModel(kind: ModelKind) {
+        val url = when (kind) {
+            ModelKind.PARAKEET_STT -> _state.value.parakeetUrl
+            ModelKind.LOCAL_LLM -> _state.value.llmUrl
+        }
+        val job = viewModelScope.launch { modelStore.install(kind, url) }
+        modelStore.registerJob(kind, job)
+    }
+
+    fun cancelModelDownload(kind: ModelKind) = modelStore.cancel(kind)
+
+    fun deleteModel(kind: ModelKind) = modelStore.delete(kind)
 }

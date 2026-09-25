@@ -200,6 +200,10 @@ private fun CaptureArea(
                 text = "Discard",
                 modifier = Modifier.clickable(onClick = onCancel).padding(8.dp),
             )
+        } else if (state.processing) {
+            Spacer(Modifier.height(12.dp))
+            MetaText(text = "Reading your words…", color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(12.dp))
         } else {
             ModeSwitch(mode = state.mode, onMode = onMode)
             Spacer(Modifier.height(32.dp))

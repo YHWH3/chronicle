@@ -12,6 +12,8 @@ dependencyResolutionManagement {
         google()
         maven { url = uri("https://maven-central.storage-download.googleapis.com/maven2/") }
         mavenCentral()
+        // sherpa-onnx AAR (prebuilt native libs for the Parakeet STT engine).
+        maven { url = uri("https://xdcobra.github.io/maven/") }
     }
 }
 rootProject.name = "chronicle"
