@@ -78,4 +78,64 @@ class StoryComposerTest {
         assertEquals("thirtieth", StoryComposer.ordinalWords(30))
         assertEquals("twentieth", StoryComposer.ordinalWords(20))
     }
+
+    @Test
+    fun `blank transcript becomes kept in silence`() {
+        val entries = listOf(entry(LocalDate.of(2026, 9, 25), 9, "   "))
+        val story = StoryComposer.compose(entries, LocalDate.of(2026, 9, 25))
+        assertTrue(story.chapters.single().paragraphs.single().endsWith("the day was kept in silence."))
+    }
+
+    @Test
+    fun `transcript punctuation is not doubled`() {
+        val entries = listOf(entry(LocalDate.of(2026, 9, 25), 9, "what a day!"))
+        val story = StoryComposer.compose(entries, LocalDate.of(2026, 9, 25))
+        assertTrue(story.chapters.single().paragraphs.single().contains("What a day!"))
+        assertTrue(!story.chapters.single().paragraphs.single().contains("!."))
+    }
+
+    @Test
+    fun `current week chapter is ongoing and past week is not`() {
+        val entries = listOf(
+            entry(LocalDate.of(2026, 9, 18), 9, "last week"),
+            entry(LocalDate.of(2026, 9, 25), 9, "this week"),
+        )
+        val story = StoryComposer.compose(entries, LocalDate.of(2026, 9, 25))
+        assertTrue(!story.chapters[0].ongoing)
+        assertTrue(story.chapters[1].ongoing)
+    }
+
+    @Test
+    fun `totals count distinct days and words`() {
+        val entries = listOf(
+            entry(LocalDate.of(2026, 9, 24), 8, "two words"),
+            entry(LocalDate.of(2026, 9, 24), 20, "three words here"),
+            entry(LocalDate.of(2026, 9, 25), 9, "one"),
+        )
+        val story = StoryComposer.compose(entries, LocalDate.of(2026, 9, 25))
+        assertEquals(2, story.totalDays)
+        assertEquals(3, story.totalEntries)
+        assertEquals(6, story.totalWords)
+        assertEquals(LocalDate.of(2026, 9, 24), story.firstDay)
+        assertEquals(LocalDate.of(2026, 9, 25), story.lastDay)
+        assertEquals(1, story.readingMinutes)
+    }
+
+    @Test
+    fun `unordered input sorts by time`() {
+        val entries = listOf(
+            entry(LocalDate.of(2026, 9, 25), 20, "second"),
+            entry(LocalDate.of(2026, 9, 25), 8, "first"),
+        )
+        val story = StoryComposer.compose(entries, LocalDate.of(2026, 9, 25))
+        val paragraph = story.chapters.single().paragraphs.single()
+        assertTrue(paragraph.indexOf("First.") < paragraph.indexOf("Later, second."))
+    }
+
+    @Test
+    fun `subtitle names the week start`() {
+        val entries = listOf(entry(LocalDate.of(2026, 9, 25), 9, "a day"))
+        val story = StoryComposer.compose(entries, LocalDate.of(2026, 9, 25))
+        assertEquals("The week of the twenty-first of September", story.chapters.single().subtitle)
+    }
 }
