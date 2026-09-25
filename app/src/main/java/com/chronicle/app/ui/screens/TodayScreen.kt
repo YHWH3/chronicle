@@ -1,6 +1,8 @@
 package com.chronicle.app.ui.screens
 
 import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -24,16 +26,19 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.chronicle.app.R
+import androidx.core.content.ContextCompat
 import com.chronicle.app.domain.EntryKind
 import com.chronicle.app.domain.JournalEntry
 import com.chronicle.app.ui.components.AccentAction
@@ -60,6 +65,7 @@ fun TodayScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val haptics = LocalHapticFeedback.current
+    val context = LocalContext.current
 
     val micPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -68,6 +74,23 @@ fun TodayScreen(
         if (granted) {
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             viewModel.toggleRecording()
+        }
+    }
+
+    val notifPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { }
+
+    // A save that scheduled reminders is the moment to ask for notifications.
+    LaunchedEffect(state.confirmation) {
+        if (state.confirmation?.contains("reminder") == true &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 
@@ -187,7 +210,12 @@ private fun CaptureArea(
                     MetaText(text = "Tap · speak your day")
                 }
                 CaptureMode.WRITE -> {
-                    WriteField(draft = state.draftText, onDraft = onDraft, onKeep = onKeep)
+                    WriteField(
+                        draft = state.draftText,
+                        saving = state.saving,
+                        onDraft = onDraft,
+                        onKeep = onKeep,
+                    )
                 }
             }
         }
@@ -226,6 +254,7 @@ private fun ModeSwitch(mode: CaptureMode, onMode: (CaptureMode) -> Unit) {
 @Composable
 private fun WriteField(
     draft: String,
+    saving: Boolean,
     onDraft: (String) -> Unit,
     onKeep: () -> Unit,
 ) {
@@ -257,7 +286,7 @@ private fun WriteField(
         Hairline()
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            AccentAction(label = "Keep", onClick = onKeep, enabled = draft.isNotBlank())
+            AccentAction(label = "Keep", onClick = onKeep, enabled = draft.isNotBlank() && !saving)
         }
     }
 }

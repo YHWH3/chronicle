@@ -44,14 +44,21 @@ class VoiceRecorder(private val context: Context, private val scope: CoroutineSc
             @Suppress("DEPRECATION")
             MediaRecorder()
         }
-        r.setAudioSource(MediaRecorder.AudioSource.MIC)
-        r.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-        r.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-        r.setAudioEncodingBitRate(96_000)
-        r.setAudioSamplingRate(44_100)
-        r.setOutputFile(file.absolutePath)
-        r.prepare()
-        r.start()
+        try {
+            r.setAudioSource(MediaRecorder.AudioSource.MIC)
+            r.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+            r.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            r.setAudioEncodingBitRate(96_000)
+            r.setAudioSamplingRate(44_100)
+            r.setOutputFile(file.absolutePath)
+            r.prepare()
+            r.start()
+        } catch (e: Exception) {
+            r.release()
+            file.delete()
+            outputFile = null
+            throw e
+        }
         recorder = r
 
         _elapsedMs.value = 0L
@@ -82,13 +89,12 @@ class VoiceRecorder(private val context: Context, private val scope: CoroutineSc
         } catch (_: RuntimeException) {
             // Stopping too early throws — treat as a failed take.
             file.delete()
+            return null
+        } finally {
+            r.release()
             recorder = null
             outputFile = null
-            return null
         }
-        r.release()
-        recorder = null
-        outputFile = null
         return file to duration
     }
 

@@ -1,5 +1,10 @@
 package com.chronicle.app.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,9 +33,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.chronicle.app.R
 import com.chronicle.app.data.db.TaskEntity
 import com.chronicle.app.ui.components.AccentAction
@@ -49,6 +56,10 @@ import java.util.Locale
 fun TasksScreen(viewModel: TasksViewModel) {
     val state by viewModel.state.collectAsState()
     val haptics = LocalHapticFeedback.current
+    val context = LocalContext.current
+    val notifPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -62,10 +73,21 @@ fun TasksScreen(viewModel: TasksViewModel) {
             NewTaskRow(
                 draft = state.draft,
                 choice = state.draftReminder,
+                adding = state.adding,
                 onDraft = viewModel::setDraft,
                 onChoice = viewModel::setReminderChoice,
                 onAdd = {
                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    // Ask for notifications at the moment a reminder is being set.
+                    if (state.draftReminder != ReminderChoice.NONE &&
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.POST_NOTIFICATIONS,
+                        ) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
                     viewModel.addTask()
                 },
             )
@@ -118,6 +140,7 @@ fun TasksScreen(viewModel: TasksViewModel) {
 private fun NewTaskRow(
     draft: String,
     choice: ReminderChoice,
+    adding: Boolean,
     onDraft: (String) -> Unit,
     onChoice: (ReminderChoice) -> Unit,
     onAdd: () -> Unit,
@@ -171,7 +194,7 @@ private fun NewTaskRow(
         Spacer(Modifier.height(14.dp))
         Hairline()
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            AccentAction(label = "Set", onClick = onAdd, enabled = draft.isNotBlank())
+            AccentAction(label = "Set", onClick = onAdd, enabled = draft.isNotBlank() && !adding)
         }
     }
 }

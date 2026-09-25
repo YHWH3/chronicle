@@ -44,7 +44,9 @@ class EntryPlayer(private val scope: CoroutineScope) {
         player = p
         _playingPath.value = path
         p.start()
-        ticker = scope.launch(Dispatchers.Default) {
+        // Ticker and all MediaPlayer calls live on the main dispatcher so
+        // reads never race a stop()/release() from the UI thread.
+        ticker = scope.launch(Dispatchers.Main.immediate) {
             while (isActive) {
                 val mp = player ?: break
                 _progress.value = if (mp.duration > 0) mp.currentPosition / mp.duration.toFloat() else 0f

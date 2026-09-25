@@ -7,13 +7,15 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Live speech-to-text using Android's SpeechRecognizer — prefers on-device
- * recognition (API 31+). When recognition is unavailable, [available] is false
- * and the app falls back to audio-only capture.
+ * Live speech-to-text using Android's SpeechRecognizer — on-device
+ * recognition only, so speech never leaves the device. When on-device
+ * recognition is unavailable, [available] is false and the app falls
+ * back to audio-only capture.
  */
 class SpeechTranscriber(private val context: Context) {
 
@@ -31,22 +33,24 @@ class SpeechTranscriber(private val context: Context) {
             .joinToString(" ")
             .trim()
 
+    /** True only when on-device recognition exists — voice never leaves the device. */
     val available: Boolean
-        get() = SpeechRecognizer.isRecognitionAvailable(context)
+        get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            SpeechRecognizer.isRecognitionAvailable(context) &&
+            SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
+
+    private var finishing = false
 
     fun start() {
         if (!available) return
         stopInternal()
+        finishing = false
         _partial.value = ""
         _committed.value = emptyList()
 
-        val r = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
-        ) {
-            SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
-        } else {
-            SpeechRecognizer.createSpeechRecognizer(context)
-        }
+        // On-device only — a network recognizer would send speech off-device.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        val r = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
 
         r.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {}
@@ -57,6 +61,7 @@ class SpeechTranscriber(private val context: Context) {
 
             override fun onError(error: Int) {
                 // Restart once for benign timeouts to keep a long take alive.
+                if (finishing) return
                 if (error == SpeechRecognizer.ERROR_NO_MATCH ||
                     error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
                 ) {
@@ -74,7 +79,7 @@ class SpeechTranscriber(private val context: Context) {
                 }
                 _partial.value = ""
                 // Keep listening — a voice note can outlive one recognition pass.
-                recognizer?.let { startListening(it) }
+                if (!finishing) recognizer?.let { startListening(it) }
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
@@ -106,7 +111,24 @@ class SpeechTranscriber(private val context: Context) {
         r.startListening(intent)
     }
 
-    fun stop() = stopInternal()
+    /**
+     * Stops listening, gives the service a bounded window to emit the final
+     * onResults (so the tail of the take is transcribed), then destroys.
+     */
+    suspend fun stop() {
+        val r = recognizer ?: return
+        finishing = true
+        r.stopListening()
+        delay(600)
+        r.destroy()
+        if (recognizer === r) recognizer = null
+    }
+
+    /** Immediate teardown for cancel paths — drops the tail of the take. */
+    fun destroyNow() {
+        finishing = true
+        stopInternal()
+    }
 
     private fun stopInternal() {
         recognizer?.let { r ->

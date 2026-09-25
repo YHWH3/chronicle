@@ -6,6 +6,7 @@ import android.content.Intent
 import com.chronicle.app.ChronicleApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class ReminderReceiver : BroadcastReceiver() {
@@ -18,9 +19,10 @@ class ReminderReceiver : BroadcastReceiver() {
                     Notifier.notifyDailyNudge(context)
                     // Re-arm for the next day — inexact alarms don't repeat.
                     val prefs = (context.applicationContext as ChronicleApp).container.prefsRepository
-                    var minutes = 20 * 60
-                    prefs.prefs.collect { minutes = it.dailyNudgeMinutes }
-                    ReminderScheduler.scheduleDailyNudge(context, minutes)
+                    val snapshot = prefs.prefs.first()
+                    if (snapshot.dailyNudgeEnabled) {
+                        ReminderScheduler.scheduleDailyNudge(context, snapshot.dailyNudgeMinutes)
+                    }
                     return@launch
                 }
 

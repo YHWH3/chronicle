@@ -52,6 +52,8 @@ data class TodayUiState(
     /** One-shot confirmation shown after a save: "Kept — 2 reminders set". */
     val confirmation: String? = null,
     val todaysEntries: List<JournalEntry> = emptyList(),
+    /** A save is in flight — guards against double-taps duplicating entries. */
+    val saving: Boolean = false,
 )
 
 class TodayViewModel(
@@ -115,7 +117,7 @@ class TodayViewModel(
 
     fun cancelRecording() {
         voiceRecorder.cancel()
-        transcriber.stop()
+        transcriber.destroyNow()
         _state.value = _state.value.copy(
             recording = RecordingState.IDLE,
             liveTranscript = "",
@@ -123,27 +125,50 @@ class TodayViewModel(
     }
 
     private fun finishRecording() {
+        if (_state.value.saving) return
         val take = voiceRecorder.stop()
-        transcriber.stop()
-        val transcript = _state.value.liveTranscript.ifBlank { transcriber.transcript }
-        _state.value = _state.value.copy(recording = RecordingState.IDLE, liveTranscript = "")
+        _state.value = _state.value.copy(recording = RecordingState.IDLE, saving = true)
 
         viewModelScope.launch {
-            val (audioPath, duration) = take?.let { it.first.absolutePath to it.second } ?: (null to 0L)
-            if (transcript.isBlank() && audioPath == null) return@launch
-            val entryId = journalRepository.addVoice(transcript, audioPath, duration)
-            val created = materializeTasks(transcript, entryId)
-            _state.value = _state.value.copy(confirmation = confirmationText(created))
+            // Waits briefly for the final recognition results before snapshotting.
+            transcriber.stop()
+            val transcript = transcriber.transcript.ifBlank { _state.value.liveTranscript }
+            try {
+                val (audioPath, duration) = take?.let { it.first.absolutePath to it.second } ?: (null to 0L)
+                if (transcript.isBlank() && audioPath == null) {
+                    _state.value = _state.value.copy(liveTranscript = "", saving = false)
+                    return@launch
+                }
+                val entryId = journalRepository.addVoice(transcript, audioPath, duration)
+                val created = materializeTasks(transcript, entryId)
+                _state.value = _state.value.copy(
+                    liveTranscript = "",
+                    saving = false,
+                    confirmation = confirmationText(created),
+                )
+            } catch (t: Throwable) {
+                _state.value = _state.value.copy(liveTranscript = "", saving = false)
+            }
         }
     }
 
     fun saveDraft() {
+        if (_state.value.saving) return
         val text = _state.value.draftText.trim()
         if (text.isEmpty()) return
+        _state.value = _state.value.copy(saving = true)
         viewModelScope.launch {
-            val entryId = journalRepository.addText(text)
-            val created = materializeTasks(text, entryId)
-            _state.value = _state.value.copy(draftText = "", confirmation = confirmationText(created))
+            try {
+                val entryId = journalRepository.addText(text)
+                val created = materializeTasks(text, entryId)
+                _state.value = _state.value.copy(
+                    draftText = "",
+                    saving = false,
+                    confirmation = confirmationText(created),
+                )
+            } catch (t: Throwable) {
+                _state.value = _state.value.copy(saving = false)
+            }
         }
     }
 
@@ -171,7 +196,7 @@ class TodayViewModel(
     override fun onCleared() {
         if (_state.value.recording == RecordingState.RECORDING) {
             voiceRecorder.cancel()
-            transcriber.stop()
+            transcriber.destroyNow()
         }
     }
 }
@@ -215,7 +240,11 @@ class JournalViewModel(
     fun togglePlay(path: String) = player.toggle(path)
 
     fun delete(entry: JournalEntry) {
-        viewModelScope.launch { journalRepository.delete(entry.id) }
+        viewModelScope.launch {
+            if (player.playingPath.value == entry.audioPath) player.stop()
+            journalRepository.delete(entry.id)
+            entry.audioPath?.let { path -> runCatching { java.io.File(path).delete() } }
+        }
     }
 
     override fun onCleared() = player.stop()
@@ -257,6 +286,8 @@ data class TasksUiState(
     val done: List<TaskEntity> = emptyList(),
     val draft: String = "",
     val draftReminder: ReminderChoice = ReminderChoice.NONE,
+    /** An add is in flight — guards against double-taps duplicating tasks. */
+    val adding: Boolean = false,
 )
 
 enum class ReminderChoice(val label: String) {
@@ -302,16 +333,26 @@ class TasksViewModel(
     }
 
     fun addTask() {
+        if (_state.value.adding) return
         val title = _state.value.draft.trim()
         if (title.isEmpty()) return
         val remindAt = _state.value.draftReminder.resolve(LocalDateTime.now())
+        _state.value = _state.value.copy(adding = true)
         viewModelScope.launch {
-            val remindMs = remindAt?.toEpochMs()
-            val id = taskRepository.add(title, remindMs)
-            if (remindMs != null) {
-                ReminderScheduler.scheduleTask(context, id, title, remindMs)
+            try {
+                val remindMs = remindAt?.toEpochMs()
+                val id = taskRepository.add(title, remindMs)
+                if (remindMs != null) {
+                    ReminderScheduler.scheduleTask(context, id, title, remindMs)
+                }
+                _state.value = _state.value.copy(
+                    draft = "",
+                    draftReminder = ReminderChoice.NONE,
+                    adding = false,
+                )
+            } catch (t: Throwable) {
+                _state.value = _state.value.copy(adding = false)
             }
-            _state.value = _state.value.copy(draft = "", draftReminder = ReminderChoice.NONE)
         }
     }
 
