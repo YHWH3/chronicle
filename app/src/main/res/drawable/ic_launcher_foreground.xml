@@ -1,0 +1,17 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Serif "C" arc: centered 27-unit ring opening right -->
+    <path
+        android:pathData="M71.4,33.3 A27,27 0 1,0 71.4,74.7"
+        android:strokeColor="#D4A574"
+        android:strokeWidth="7.5"
+        android:strokeLineCap="butt"
+        android:fillColor="#00000000" />
+    <!-- Period beneath the opening -->
+    <path
+        android:pathData="M68.5,80.5 h6 v6 h-6 z"
+        android:fillColor="#D4A574" />
+</vector>
