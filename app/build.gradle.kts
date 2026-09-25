@@ -57,9 +57,15 @@ dependencies {
     implementation(libs.datastore.preferences)
     implementation(libs.core.ktx)
     implementation(libs.coroutines.android)
+    implementation(libs.mediapipe.genai)
+    implementation(libs.commons.compress)
+    implementation(libs.sherpa.onnx)
+    implementation(libs.sherpa.onnxruntime)
 
     debugImplementation(libs.compose.ui.tooling)
 
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)
+    // android.jar stubs throw for org.json in local tests; this ships the real one.
+    testImplementation(libs.org.json)
 }
