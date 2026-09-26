@@ -1,0 +1,7 @@
+appId: com.chronicle.app
+---
+- tapOn: 'RETRY'
+- assertVisible: 'CANCEL'
+- takeScreenshot: fix1b-retry-downloading
+- tapOn: 'CANCEL'
+- takeScreenshot: fix1b-after-second-cancel

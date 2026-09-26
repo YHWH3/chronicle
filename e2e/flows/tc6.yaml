@@ -1,0 +1,14 @@
+appId: com.chronicle.app
+---
+- launchApp
+- tapOn: "STORY"
+- assertVisible: "BEING WRITTEN"
+- assertVisible: "The Story"
+- assertVisible: "1 DAYS · 2 ENTRIES · [0-9]+ WORDS[\\s\\S]*"
+- assertVisible: "CHAPTER I · UNFINISHED"
+- assertVisible: "The week of the twenty-first of September"
+- tapOn: "CHAPTER I"
+- assertVisible: "2 ENTRIES · 15 WORDS"
+- assertVisible: ".*On Saturday, the twenty-sixth of September, Walked the coast road, cold wind\\.[\\s\\S]*"
+- assertVisible: ".*Later, remind me to call the dentist tomorrow at 5\\.[\\s\\S]*"
+- pressKey: back

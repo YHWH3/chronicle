@@ -1,0 +1,8 @@
+appId: com.chronicle.app
+---
+- tapOn: "CHAPTER I · UNFINISHED"
+- assertVisible: "CHAPTER I"
+- assertVisible: "2 ENTRIES · 15 WORDS"
+- assertVisible: ".*On Saturday, the twenty-sixth of September, Walked the coast road, cold wind\\.[\\s\\S]*"
+- assertVisible: ".*Later, remind me to call the dentist tomorrow at 5\\.[\\s\\S]*"
+- pressKey: back

@@ -1,0 +1,12 @@
+appId: com.chronicle.app
+---
+- tapOn:
+    point: "13%,93%"
+- tapOn: 'Begin anywhere. The day will shape itself.'
+- inputText: 'testing a double tap safeguard'
+- doubleTapOn: 'KEEP'
+- takeScreenshot: e2-after-doubletap
+- hideKeyboard
+- tapOn:
+    point: "35%,93%"
+- takeScreenshot: e2-journal

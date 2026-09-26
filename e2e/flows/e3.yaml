@@ -1,0 +1,13 @@
+appId: com.chronicle.app
+---
+- assertVisible: 'EARLIER TODAY'
+- assertVisible: 'testing a double tap safeguard'
+- takeScreenshot: e3-today-entries
+- tapOn:
+    point: "82%,93%"
+- assertVisible: 'Stretch'
+- assertVisible: 'SAT 26 SEP · 09:00'
+- assertVisible: 'Water the fern'
+- assertVisible: 'SUN 27 SEP · 09:00'
+- takeScreenshot: e3-intentions
+- tapOn: '󰒓'

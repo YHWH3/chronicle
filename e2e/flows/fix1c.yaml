@@ -1,0 +1,14 @@
+appId: com.chronicle.app
+---
+- tapOn: 'Open details'
+- assertVisible: 'The quiet particulars'
+- scrollUntilVisible:
+    element: 'GET IT'
+    direction: down
+- takeScreenshot: fix1c-before-getit
+- tapOn: 'GET IT'
+- assertVisible: 'CANCEL'
+- takeScreenshot: fix1c-downloading
+- tapOn: 'CANCEL'
+- assertVisible: 'GET IT'
+- takeScreenshot: fix1c-after-cancel

@@ -1,0 +1,9 @@
+appId: com.chronicle.app
+---
+- tapOn:
+    point: "30%,36%"
+- assertVisible: "Allow"
+- takeScreenshot: e4-permission-dialog
+- tapOn: "Don.t allow"
+- assertVisible: 'TAP · SPEAK YOUR DAY'
+- takeScreenshot: e4-after-deny

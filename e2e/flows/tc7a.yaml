@@ -1,0 +1,5 @@
+appId: com.chronicle.app
+---
+- launchApp
+- tapOn: "Details"
+- assertVisible: "The quiet particulars"

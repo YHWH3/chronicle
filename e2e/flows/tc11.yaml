@@ -1,0 +1,23 @@
+appId: com.chronicle.app
+---
+- tapOn:
+    point: "13%,93%"
+- tapOn: "Details"
+- assertVisible: "The quiet particulars"
+- assertVisible: "THE MIND — WORDS INTO MEANING"
+- assertVisible: "QUIET PARSER"
+- assertVisible: "ON-DEVICE MODEL"
+- assertVisible: "OPENROUTER"
+- assertVisible: "CUSTOM ENDPOINT"
+- assertVisible: "A deterministic reader — fast, private, no model needed."
+- tapOn: "ON-DEVICE MODEL"
+- assertVisible: "Llama 3.2 3B runs entirely on this phone. Words never leave."
+- assertVisible: "Llama 3.2 3B · on-device mind"
+- assertVisible: "~2 GB"
+- assertVisible: ".*accept Meta's licence on huggingface.co[\\s\\S]*"
+- assertVisible: "GET IT"
+- takeScreenshot: tc11-ondevice
+- tapOn: "GET IT"
+- assertVisible: "CANCEL"
+- takeScreenshot: tc11-llm-downloading
+- tapOn: "CANCEL"

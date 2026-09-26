@@ -1,0 +1,5 @@
+appId: com.chronicle.app
+---
+- tapOn: "Don.t allow"
+- assertVisible: 'TAP · SPEAK YOUR DAY'
+- takeScreenshot: e4-after-deny

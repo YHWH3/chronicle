@@ -1,0 +1,22 @@
+appId: com.chronicle.app
+---
+- scrollUntilVisible:
+    element: 'CUSTOM ENDPOINT'
+    direction: up
+- tapOn: 'OPENROUTER'
+- assertVisible: 'OpenRouter API key \(sk-or-…\)'
+- assertVisible: 'FREE MODELS'
+- tapOn: 'OpenRouter API key \(sk-or-…\)'
+- inputText: 'sk-or-dummykey123'
+- takeScreenshot: tc11-openrouter
+- tapOn: 'google/gemini-2.0-flash-exp'
+- takeScreenshot: tc11-openrouter-picked
+- tapOn: 'CUSTOM ENDPOINT'
+- assertVisible: 'Base URL \(https://api.openai.com/v1\)'
+- assertVisible: 'Model \(gpt-4o-mini, …\)'
+- assertVisible: 'API key \(optional for some endpoints\)'
+- takeScreenshot: tc11-custom
+- tapOn: 'QUIET PARSER'
+- assertVisible: 'A deterministic reader — fast, private, no model needed.'
+- assertNotVisible: 'FREE MODELS'
+- assertNotVisible: 'OpenRouter API key'

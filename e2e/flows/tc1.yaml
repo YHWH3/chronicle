@@ -1,0 +1,15 @@
+appId: com.chronicle.app
+---
+- launchApp
+- assertVisible: "SAT · 26 SEP"
+- assertVisible:
+    text: "(?i)(a quiet hour|good morning|good afternoon|good evening)\\."
+- assertVisible: "What happened today?"
+- assertVisible: "Details"
+- assertVisible: "SPEAK"
+- assertVisible: "WRITE"
+- assertVisible: "TAP · SPEAK YOUR DAY"
+- assertVisible: "TODAY"
+- assertVisible: "JOURNAL"
+- assertVisible: "STORY"
+- assertVisible: "INTENTIONS"

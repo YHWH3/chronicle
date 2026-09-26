@@ -1,0 +1,25 @@
+appId: com.chronicle.app
+---
+- tapOn: 'INK'
+- takeScreenshot: fix5-ink
+- tapOn: 'PAPER'
+- takeScreenshot: fix5-paper
+- tapOn: 'Ask me about the day'
+- assertVisible: '07:00'
+- assertVisible: '21:30'
+- takeScreenshot: fix5-nudge-chips
+- tapOn: 'Ask me about the day'
+- assertNotVisible: '07:00'
+- pressKey: Back
+- tapOn:
+    point: "82%,93%"
+- tapOn: 'An intention, plainly put…'
+- inputText: 'mop the hallway'
+- scrollUntilVisible:
+    element: 'TONIGHT'
+    direction: left
+- tapOn: 'TONIGHT'
+- tapOn: 'SET'
+- assertVisible: 'Mop the hallway'
+- assertVisible: 'SAT 26 SEP · 20:00'
+- takeScreenshot: fix5-manual-task

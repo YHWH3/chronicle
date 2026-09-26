@@ -1,0 +1,13 @@
+appId: com.chronicle.app
+---
+- launchApp
+- tapOn: "WRITE"
+- tapOn: "Begin anywhere. The day will shape itself."
+- inputText: "remind me to call the dentist tomorrow at 5"
+- tapOn: "KEEP"
+- assertVisible: "KEPT — 1 REMINDER SET\\.[\\s\\S]*"
+- tapOn: "INTENTIONS"
+- assertVisible: "PULLED FROM YOUR WORDS"
+- assertVisible: "Intentions"
+- assertVisible: "Call the dentist"
+- assertVisible: "SUN 27 SEP · 17:00"

@@ -1,0 +1,10 @@
+appId: com.chronicle.app
+---
+- tapOn:
+    point: "82%,93%"
+- tapOn: 'An intention, plainly put…'
+- inputText: 'feed the cat'
+- tapOn: 'NO REMINDER'
+- tapOn: 'SET'
+- assertVisible: 'Feed the cat'
+- takeScreenshot: e6-noreminder

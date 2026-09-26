@@ -1,0 +1,10 @@
+appId: com.chronicle.app
+---
+- assertVisible: "https://github.com/k2-fsa.*"
+- takeScreenshot: tc10-ear
+- tapOn: "GET IT"
+- assertVisible: "CANCEL"
+- takeScreenshot: tc10-downloading
+- tapOn: "CANCEL"
+- assertVisible: "GET IT"
+- takeScreenshot: tc10-cancelled

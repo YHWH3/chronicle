@@ -1,0 +1,15 @@
+appId: com.chronicle.app
+---
+- pressKey: Back
+- tapOn:
+    point: "82%,93%"
+- assertVisible: 'NO REMINDER'
+- assertVisible: 'IN AN HOUR'
+- assertVisible: 'TONIGHT'
+- takeScreenshot: fix2-chips-initial
+- scrollUntilVisible:
+    element: 'TOMORROW'
+    direction: left
+- takeScreenshot: fix2-chips-scrolled
+- tapOn: 'TOMORROW'
+- takeScreenshot: fix2-tomorrow-picked

@@ -1,0 +1,22 @@
+appId: com.chronicle.app
+---
+- hideKeyboard
+- scrollUntilVisible:
+    element: 'FREE MODELS'
+    direction: down
+- assertVisible: 'meta-llama/llama-3.2-3b-instruct'
+- tapOn: 'google/gemini-2.0-flash-exp'
+- takeScreenshot: tc11-openrouter-picked
+- scrollUntilVisible:
+    element: 'CUSTOM ENDPOINT'
+    direction: up
+- tapOn: 'CUSTOM ENDPOINT'
+- assertVisible: 'Base URL \(https://api.openai.com/v1\)'
+- assertVisible: 'Model \(gpt-4o-mini, …\)'
+- assertVisible: 'API key \(optional for some endpoints\)'
+- takeScreenshot: tc11-custom
+- tapOn: 'QUIET PARSER'
+- assertVisible: 'A deterministic reader — fast, private, no model needed.'
+- assertNotVisible: 'FREE MODELS'
+- assertNotVisible: 'OpenRouter API key'
+- takeScreenshot: tc11-quiet-collapsed

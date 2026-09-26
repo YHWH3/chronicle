@@ -1,0 +1,11 @@
+appId: com.chronicle.app
+---
+- scrollUntilVisible:
+    element: "The Llama download is gated.*"
+    direction: down
+- assertVisible: "The Llama download is gated — accept Meta's licence on huggingface.co, then paste the .task link here."
+- takeScreenshot: tc11-ondevice
+- tapOn: "GET IT"
+- assertVisible: "CANCEL"
+- takeScreenshot: tc11-llm-downloading
+- tapOn: "CANCEL"

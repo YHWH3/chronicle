@@ -1,0 +1,14 @@
+appId: com.chronicle.app
+---
+- tapOn:
+    point: "35%,93%"
+- takeScreenshot: e0-journal-baseline
+- tapOn:
+    point: "13%,93%"
+- assertVisible: 'Begin anywhere. The day will shape itself.'
+- takeScreenshot: e1-empty-keep-before
+- tapOn: 'KEEP'
+- takeScreenshot: e1-empty-keep-after
+- tapOn:
+    point: "35%,93%"
+- takeScreenshot: e1-journal-after

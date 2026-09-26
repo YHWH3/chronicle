@@ -1,0 +1,8 @@
+appId: com.chronicle.app
+---
+- hideKeyboard
+- tapOn: "INTENTIONS"
+- assertVisible: "PULLED FROM YOUR WORDS"
+- assertVisible: "Intentions"
+- assertVisible: "Call the dentist"
+- assertVisible: "SUN 27 SEP · 17:00"

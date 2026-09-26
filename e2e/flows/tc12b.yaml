@@ -1,0 +1,16 @@
+appId: com.chronicle.app
+---
+- pressKey: Back
+- assertVisible: 'WRITE'
+- tapOn: 'WRITE'
+- tapOn: 'Begin anywhere. The day will shape itself.'
+- inputText: 'remind me to stretch tonight at 9'
+- tapOn: 'KEEP'
+- takeScreenshot: tc12-hint
+- assertVisible: 'KEPT — 1 REMINDER SET\.[\s\S]*READ BY QUIET PARSER[\s\S]*'
+- takeScreenshot: tc12-kept
+- tapOn:
+    point: "82%,93%"
+- assertVisible: 'Stretch'
+- assertVisible: 'SAT 26 SEP · 09:00'
+- takeScreenshot: tc12-stretch

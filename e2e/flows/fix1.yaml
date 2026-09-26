@@ -1,0 +1,13 @@
+appId: com.chronicle.app
+---
+- scrollUntilVisible:
+    element: 'GET IT'
+    direction: down
+- takeScreenshot: fix1-before-getit
+- tapOn: 'GET IT'
+- assertVisible: 'CANCEL'
+- takeScreenshot: fix1-downloading
+- tapOn: 'CANCEL'
+- takeScreenshot: fix1-immediately-after-cancel
+- assertVisible: 'GET IT'
+- takeScreenshot: fix1-getit-returned

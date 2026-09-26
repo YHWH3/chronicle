@@ -1,0 +1,11 @@
+appId: com.chronicle.app
+---
+- launchApp
+- tapOn: "INTENTIONS"
+- tapOn: "An intention, plainly put…"
+- inputText: "Water the fern"
+- tapOn: "TOMORROW"
+- tapOn: "SET"
+- assertVisible: "Water the fern"
+- assertVisible: "SUN 27 SEP · 09:00"
+- assertVisible: "An intention, plainly put…"

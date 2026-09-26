@@ -1,0 +1,15 @@
+appId: com.chronicle.app
+---
+- tapOn:
+    point: "35%,93%"
+- assertVisible: 'testing a double tap safeguard'
+- takeScreenshot: e5-journal-before
+- tapOn: 'Remove'
+- assertNotVisible: 'testing a double tap safeguard'
+- assertVisible: 'remind me to stretch tonight at 9'
+- takeScreenshot: e5-journal-after
+- tapOn:
+    point: "13%,93%"
+- assertNotVisible: 'testing a double tap safeguard'
+- assertVisible: 'remind me to stretch tonight at 9'
+- takeScreenshot: e5-today-after

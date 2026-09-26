@@ -1,0 +1,8 @@
+appId: com.chronicle.app
+---
+- hideKeyboard
+- tapOn:
+    point: "82%,93%"
+- assertVisible: 'Stretch'
+- assertVisible: 'SAT 26 SEP · 09:00'
+- takeScreenshot: tc12-stretch

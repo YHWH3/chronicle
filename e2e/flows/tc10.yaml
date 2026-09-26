@@ -1,0 +1,23 @@
+appId: com.chronicle.app
+---
+- tapOn:
+    point: "13%,93%"
+- tapOn: "Details"
+- assertVisible: "The quiet particulars"
+- assertVisible: "THE EAR — SPEECH TO TEXT"
+- assertVisible: "SYSTEM (ON-DEVICE)"
+- assertVisible: "PARAKEET TDT 0.6B"
+- assertVisible: "Android's recognizer, kept on-device. Nothing to download."
+- tapOn: "PARAKEET TDT 0.6B"
+- assertVisible: "NVIDIA's Parakeet — sharper ears, transcribes when the take ends."
+- assertVisible: "Parakeet TDT 0.6B · speech to text"
+- assertVisible: "~250 MB"
+- assertVisible: "GET IT"
+- assertVisible: "Model download URL"
+- takeScreenshot: tc10-ear
+- tapOn: "GET IT"
+- assertVisible: "CANCEL"
+- takeScreenshot: tc10-downloading
+- tapOn: "CANCEL"
+- assertVisible: "GET IT"
+- takeScreenshot: tc10-cancelled
