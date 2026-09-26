@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -91,7 +92,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                                 if (selected) MaterialTheme.colorScheme.primary else ChronicleExtras.hairline,
                                 MaterialTheme.shapes.small,
                             )
-                            .clickable { viewModel.setThemeMode(mode) }
+                            .selectable(selected = selected) { viewModel.setThemeMode(mode) }
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                     ) {
                         MetaText(
@@ -143,7 +144,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                                 if (selected) MaterialTheme.colorScheme.primary else ChronicleExtras.hairline,
                                 MaterialTheme.shapes.small,
                             )
-                            .clickable { viewModel.setDailyNudgeMinutes(mins) }
+                            .selectable(selected = selected) { viewModel.setDailyNudgeMinutes(mins) }
                             .padding(horizontal = 10.dp, vertical = 7.dp),
                     ) {
                         MetaText(
@@ -350,7 +351,7 @@ private fun ChoiceChip(label: String, selected: Boolean, onClick: () -> Unit) {
                 if (selected) MaterialTheme.colorScheme.primary else ChronicleExtras.hairline,
                 MaterialTheme.shapes.small,
             )
-            .clickable(onClick = onClick)
+            .selectable(selected = selected, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
         MetaText(

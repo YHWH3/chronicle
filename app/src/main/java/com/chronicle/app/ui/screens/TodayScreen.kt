@@ -109,7 +109,7 @@ fun TodayScreen(
             Spacer(Modifier.weight(1f))
             ChronicleIcon(
                 R.drawable.ic_gear,
-                "Details",
+                "Open details",
                 tint = ChronicleExtras.faint,
                 modifier = Modifier.clickable(onClick = onOpenSettings),
             )

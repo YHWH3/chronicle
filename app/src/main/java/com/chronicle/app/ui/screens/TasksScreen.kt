@@ -19,8 +19,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.MaterialTheme
@@ -169,7 +172,9 @@ private fun NewTaskRow(
         Spacer(Modifier.height(12.dp))
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
         ) {
             ReminderChoice.entries.forEach { c ->
                 val selected = c == choice
@@ -181,7 +186,9 @@ private fun NewTaskRow(
                             if (selected) MaterialTheme.colorScheme.primary else ChronicleExtras.hairline,
                             MaterialTheme.shapes.small,
                         )
-                        .clickable { onChoice(if (selected) ReminderChoice.NONE else c) }
+                        .selectable(selected = selected) {
+                            onChoice(if (selected) ReminderChoice.NONE else c)
+                        }
                         .padding(horizontal = 10.dp, vertical = 7.dp),
                 ) {
                     MetaText(
