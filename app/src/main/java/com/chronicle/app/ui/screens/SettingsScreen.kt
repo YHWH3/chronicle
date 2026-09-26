@@ -4,6 +4,14 @@ import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,6 +23,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,6 +34,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -34,6 +44,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.chronicle.app.R
 import com.chronicle.app.data.MindBackend
@@ -47,6 +59,7 @@ import com.chronicle.app.ui.components.Hairline
 import com.chronicle.app.ui.components.LabelledRule
 import com.chronicle.app.ui.components.MetaText
 import com.chronicle.app.ui.theme.ChronicleExtras
+import com.chronicle.app.ui.theme.ChronicleMotion
 import com.chronicle.app.ui.theme.SerifItalic
 import com.chronicle.app.ui.vm.SettingsViewModel
 
@@ -69,7 +82,9 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
             ChronicleIcon(
                 R.drawable.ic_back, "Back",
                 tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.clickable(onClick = onBack),
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .clickable(onClick = onBack),
             )
             Spacer(Modifier.width(18.dp))
             MetaText("Details")
@@ -83,23 +98,11 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(ThemeMode.INK to "Ink", ThemeMode.PAPER to "Paper", ThemeMode.SYSTEM to "Follow the day")
                 .forEach { (mode, label) ->
-                    val selected = state.themeMode == mode
-                    Box(
-                        modifier = Modifier
-                            .clip(MaterialTheme.shapes.small)
-                            .border(
-                                1.dp,
-                                if (selected) MaterialTheme.colorScheme.primary else ChronicleExtras.hairline,
-                                MaterialTheme.shapes.small,
-                            )
-                            .selectable(selected = selected) { viewModel.setThemeMode(mode) }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                    ) {
-                        MetaText(
-                            text = label,
-                            color = if (selected) MaterialTheme.colorScheme.primary else ChronicleExtras.faint,
-                        )
-                    }
+                    ChoiceChip(
+                        label = label,
+                        selected = state.themeMode == mode,
+                        onClick = { viewModel.setThemeMode(mode) },
+                    )
                 }
         }
         Spacer(Modifier.height(8.dp))
@@ -112,44 +115,43 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
         Spacer(Modifier.height(34.dp))
         LabelledRule("A daily nudge")
         Spacer(Modifier.height(18.dp))
+        val toggleNudge: (Boolean) -> Unit = { on ->
+            viewModel.setDailyNudge(on)
+            if (on && Build.VERSION.SDK_INT >= 33) {
+                notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { toggleNudge(!state.dailyNudgeEnabled) },
         ) {
             Text("Ask me about the day", style = MaterialTheme.typography.bodyLarge)
             Spacer(Modifier.weight(1f))
             QuietSwitch(
                 checked = state.dailyNudgeEnabled,
-                onChange = { on ->
-                    viewModel.setDailyNudge(on)
-                    if (on && Build.VERSION.SDK_INT >= 33) {
-                        notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    }
-                },
+                onChange = toggleNudge,
             )
         }
-        if (state.dailyNudgeEnabled) {
-            Spacer(Modifier.height(14.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(
-                    7 * 60 to "07:00", 12 * 60 + 30 to "12:30",
-                    18 * 60 to "18:00", 20 * 60 to "20:00", 21 * 60 + 30 to "21:30",
-                ).forEach { (mins, label) ->
-                    val selected = state.dailyNudgeMinutes == mins
-                    Box(
-                        modifier = Modifier
-                            .clip(MaterialTheme.shapes.small)
-                            .border(
-                                1.dp,
-                                if (selected) MaterialTheme.colorScheme.primary else ChronicleExtras.hairline,
-                                MaterialTheme.shapes.small,
-                            )
-                            .selectable(selected = selected) { viewModel.setDailyNudgeMinutes(mins) }
-                            .padding(horizontal = 10.dp, vertical = 7.dp),
-                    ) {
-                        MetaText(
-                            text = label,
-                            color = if (selected) MaterialTheme.colorScheme.primary else ChronicleExtras.faint,
+        AnimatedVisibility(
+            visible = state.dailyNudgeEnabled,
+            enter = fadeIn(tween(ChronicleMotion.ENTER, easing = ChronicleMotion.EnterEasing)) +
+                expandVertically(tween(ChronicleMotion.ENTER, easing = ChronicleMotion.EnterEasing)),
+            exit = fadeOut(tween(ChronicleMotion.EXIT, easing = ChronicleMotion.ExitEasing)) +
+                shrinkVertically(tween(ChronicleMotion.EXIT, easing = ChronicleMotion.ExitEasing)),
+        ) {
+            Column {
+                Spacer(Modifier.height(14.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        7 * 60 to "07:00", 12 * 60 + 30 to "12:30",
+                        18 * 60 to "18:00", 20 * 60 to "20:00", 21 * 60 + 30 to "21:30",
+                    ).forEach { (mins, label) ->
+                        ChoiceChip(
+                            label = label,
+                            selected = state.dailyNudgeMinutes == mins,
+                            onClick = { viewModel.setDailyNudgeMinutes(mins) },
                         )
                     }
                 }
@@ -179,17 +181,25 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
             style = SerifItalic,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        if (state.sttEngine == SttEngine.PARAKEET) {
-            Spacer(Modifier.height(16.dp))
-            ModelRow(
-                kind = ModelKind.PARAKEET_STT,
-                state = state.models[ModelKind.PARAKEET_STT] ?: ModelState.NotInstalled,
-                url = state.parakeetUrl,
-                onUrl = { viewModel.setModelUrls(it, state.llmUrl) },
-                onInstall = { viewModel.installModel(ModelKind.PARAKEET_STT) },
-                onCancel = { viewModel.cancelModelDownload(ModelKind.PARAKEET_STT) },
-                onDelete = { viewModel.deleteModel(ModelKind.PARAKEET_STT) },
-            )
+        AnimatedVisibility(
+            visible = state.sttEngine == SttEngine.PARAKEET,
+            enter = fadeIn(tween(ChronicleMotion.ENTER, easing = ChronicleMotion.EnterEasing)) +
+                expandVertically(tween(ChronicleMotion.ENTER, easing = ChronicleMotion.EnterEasing)),
+            exit = fadeOut(tween(ChronicleMotion.EXIT, easing = ChronicleMotion.ExitEasing)) +
+                shrinkVertically(tween(ChronicleMotion.EXIT, easing = ChronicleMotion.ExitEasing)),
+        ) {
+            Column {
+                Spacer(Modifier.height(16.dp))
+                ModelRow(
+                    kind = ModelKind.PARAKEET_STT,
+                    state = state.models[ModelKind.PARAKEET_STT] ?: ModelState.NotInstalled,
+                    url = state.parakeetUrl,
+                    onUrl = { viewModel.setModelUrls(it, state.llmUrl) },
+                    onInstall = { viewModel.installModel(ModelKind.PARAKEET_STT) },
+                    onCancel = { viewModel.cancelModelDownload(ModelKind.PARAKEET_STT) },
+                    onDelete = { viewModel.deleteModel(ModelKind.PARAKEET_STT) },
+                )
+            }
         }
 
         Spacer(Modifier.height(34.dp))
@@ -224,9 +234,13 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        when (state.mindBackend) {
-            MindBackend.QUIET_PARSER -> {}
-            MindBackend.ON_DEVICE -> {
+        val panelEnter = fadeIn(tween(ChronicleMotion.ENTER, easing = ChronicleMotion.EnterEasing)) +
+            expandVertically(tween(ChronicleMotion.ENTER, easing = ChronicleMotion.EnterEasing))
+        val panelExit = fadeOut(tween(ChronicleMotion.EXIT, easing = ChronicleMotion.ExitEasing)) +
+            shrinkVertically(tween(ChronicleMotion.EXIT, easing = ChronicleMotion.ExitEasing))
+
+        AnimatedVisibility(visible = state.mindBackend == MindBackend.ON_DEVICE, enter = panelEnter, exit = panelExit) {
+            Column {
                 Spacer(Modifier.height(16.dp))
                 ModelRow(
                     kind = ModelKind.LOCAL_LLM,
@@ -245,7 +259,9 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     color = ChronicleExtras.faint,
                 )
             }
-            MindBackend.OPENROUTER -> {
+        }
+        AnimatedVisibility(visible = state.mindBackend == MindBackend.OPENROUTER, enter = panelEnter, exit = panelExit) {
+            Column {
                 Spacer(Modifier.height(16.dp))
                 QuietField(
                     value = state.openRouterKey,
@@ -268,7 +284,9 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     }
                 }
             }
-            MindBackend.CUSTOM -> {
+        }
+        AnimatedVisibility(visible = state.mindBackend == MindBackend.CUSTOM, enter = panelEnter, exit = panelExit) {
+            Column {
                 Spacer(Modifier.height(16.dp))
                 QuietField(
                     value = state.customBaseUrl,
@@ -315,27 +333,39 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
 /** A quiet toggle: hairline track, brass thumb — no switch chrome. */
 @Composable
 private fun QuietSwitch(checked: Boolean, onChange: (Boolean) -> Unit) {
+    val trackColor by animateColorAsState(
+        targetValue = if (checked) MaterialTheme.colorScheme.primary else ChronicleExtras.hairline,
+        animationSpec = tween(ChronicleMotion.MICRO, easing = ChronicleMotion.StandardEasing),
+        label = "switchTrack",
+    )
+    val thumbColor by animateColorAsState(
+        targetValue = if (checked) MaterialTheme.colorScheme.primary else ChronicleExtras.faint,
+        animationSpec = tween(ChronicleMotion.MICRO, easing = ChronicleMotion.StandardEasing),
+        label = "switchThumb",
+    )
+    // Thumb slides its travel (52 - 20 - 2*4 = 24dp) on a gentle settle.
+    val fraction by animateFloatAsState(
+        targetValue = if (checked) 1f else 0f,
+        animationSpec = ChronicleMotion.settleSpring,
+        label = "switchSlide",
+    )
+    val travel = with(LocalDensity.current) { 24.dp.toPx() }
     Box(
         modifier = Modifier
             .width(52.dp)
             .height(28.dp)
             .clip(CircleShape)
-            .border(
-                1.dp,
-                if (checked) MaterialTheme.colorScheme.primary else ChronicleExtras.hairline,
-                CircleShape,
-            )
+            .border(1.dp, trackColor, CircleShape)
             .clickable { onChange(!checked) },
     ) {
         Box(
             modifier = Modifier
-                .align(if (checked) Alignment.CenterEnd else Alignment.CenterStart)
+                .align(Alignment.CenterStart)
                 .padding(4.dp)
+                .offset { IntOffset((travel * fraction).toInt(), 0) }
                 .size(20.dp)
                 .clip(CircleShape)
-                .background(
-                    if (checked) MaterialTheme.colorScheme.primary else ChronicleExtras.faint,
-                ),
+                .background(thumbColor),
         )
     }
 }
@@ -343,21 +373,24 @@ private fun QuietSwitch(checked: Boolean, onChange: (Boolean) -> Unit) {
 /** Small selectable chip — hairline border, brass when chosen. */
 @Composable
 private fun ChoiceChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val borderColor by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.primary else ChronicleExtras.hairline,
+        animationSpec = tween(ChronicleMotion.MICRO, easing = ChronicleMotion.StandardEasing),
+        label = "chipBorder",
+    )
+    val textColor by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.primary else ChronicleExtras.faint,
+        animationSpec = tween(ChronicleMotion.MICRO, easing = ChronicleMotion.StandardEasing),
+        label = "chipText",
+    )
     Box(
         modifier = Modifier
             .clip(MaterialTheme.shapes.small)
-            .border(
-                1.dp,
-                if (selected) MaterialTheme.colorScheme.primary else ChronicleExtras.hairline,
-                MaterialTheme.shapes.small,
-            )
+            .border(1.dp, borderColor, MaterialTheme.shapes.small)
             .selectable(selected = selected, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
-        MetaText(
-            text = label,
-            color = if (selected) MaterialTheme.colorScheme.primary else ChronicleExtras.faint,
-        )
+        MetaText(text = label, color = textColor)
     }
 }
 
@@ -466,6 +499,11 @@ private fun ModelRow(
         }
         if (state is ModelState.Downloading && state.progress >= 0) {
             Spacer(Modifier.height(10.dp))
+            val shownProgress by animateFloatAsState(
+                targetValue = state.progress.coerceIn(0f, 1f),
+                animationSpec = tween(ChronicleMotion.MICRO, easing = ChronicleMotion.StandardEasing),
+                label = "dlProgress",
+            )
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -474,7 +512,7 @@ private fun ModelRow(
             ) {
                 Box(
                     Modifier
-                        .fillMaxWidth(state.progress.coerceIn(0f, 1f))
+                        .fillMaxWidth(shownProgress)
                         .height(1.dp)
                         .background(MaterialTheme.colorScheme.primary),
                 )

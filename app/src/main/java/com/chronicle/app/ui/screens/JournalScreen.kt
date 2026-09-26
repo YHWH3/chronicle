@@ -1,5 +1,8 @@
 package com.chronicle.app.ui.screens
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -17,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -32,6 +36,7 @@ import com.chronicle.app.ui.components.Hairline
 import com.chronicle.app.ui.components.Masthead
 import com.chronicle.app.ui.components.MetaText
 import com.chronicle.app.ui.theme.ChronicleExtras
+import com.chronicle.app.ui.theme.ChronicleMotion
 import com.chronicle.app.ui.vm.JournalViewModel
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -77,14 +82,16 @@ fun JournalScreen(viewModel: JournalViewModel) {
                 Hairline()
             }
             items(day.entries, key = { it.id }) { entry ->
-                EntryRow(
-                    entry = entry,
-                    isPlaying = state.playingPath == entry.audioPath,
-                    progress = if (state.playingPath == entry.audioPath) state.progress else 0f,
-                    onPlay = { entry.audioPath?.let { viewModel.togglePlay(it) } },
-                    onDelete = { viewModel.delete(entry) },
-                )
-                Hairline()
+                Column(Modifier.animateItem()) {
+                    EntryRow(
+                        entry = entry,
+                        isPlaying = state.playingPath == entry.audioPath,
+                        progress = if (state.playingPath == entry.audioPath) state.progress else 0f,
+                        onPlay = { entry.audioPath?.let { viewModel.togglePlay(it) } },
+                        onDelete = { viewModel.delete(entry) },
+                    )
+                    Hairline()
+                }
             }
         }
     }
@@ -125,6 +132,7 @@ private fun EntryRow(
                 tint = ChronicleExtras.faint,
                 modifier = Modifier
                     .size(16.dp)
+                    .minimumInteractiveComponentSize()
                     .clickable(onClick = onDelete),
             )
         }
@@ -140,14 +148,18 @@ private fun EntryRow(
         if (entry.audioPath != null) {
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
+                val discColor by animateColorAsState(
+                    targetValue = if (isPlaying) MaterialTheme.colorScheme.primary
+                    else ChronicleExtras.raised,
+                    animationSpec = tween(ChronicleMotion.MICRO, easing = ChronicleMotion.StandardEasing),
+                    label = "playDisc",
+                )
                 Box(
                     modifier = Modifier
                         .size(36.dp)
+                        .minimumInteractiveComponentSize()
                         .clip(CircleShape)
-                        .background(
-                            if (isPlaying) MaterialTheme.colorScheme.primary
-                            else ChronicleExtras.raised,
-                        )
+                        .background(discColor)
                         .clickable(onClick = onPlay),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -160,6 +172,11 @@ private fun EntryRow(
                     )
                 }
                 Spacer(Modifier.width(14.dp))
+                val smoothProgress by animateFloatAsState(
+                    targetValue = progress,
+                    animationSpec = tween(ChronicleMotion.MICRO, easing = ChronicleMotion.StandardEasing),
+                    label = "playProgress",
+                )
                 Box(
                     Modifier
                         .weight(1f)
@@ -168,7 +185,7 @@ private fun EntryRow(
                 ) {
                     Box(
                         Modifier
-                            .fillMaxWidth(progress)
+                            .fillMaxWidth(smoothProgress)
                             .height(1.dp)
                             .background(MaterialTheme.colorScheme.primary),
                     )

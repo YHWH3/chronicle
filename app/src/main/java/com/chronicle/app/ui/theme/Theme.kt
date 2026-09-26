@@ -1,5 +1,7 @@
 package com.chronicle.app.ui.theme
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
@@ -187,21 +189,6 @@ fun ChronicleTheme(mode: com.chronicle.app.data.ThemeMode, content: @Composable 
         com.chronicle.app.data.ThemeMode.INK -> true
         com.chronicle.app.data.ThemeMode.SYSTEM -> isSystemInDarkTheme()
     }
-    val extras = if (dark) {
-        Extras(
-            hairline = HairlineDark,
-            raised = InkRaised,
-            faint = PaperInkFaint,
-            accentSoft = BrassLight.copy(alpha = 0.14f),
-        )
-    } else {
-        Extras(
-            hairline = Hairline,
-            raised = IvoryRaised,
-            faint = InkFaint,
-            accentSoft = Brass.copy(alpha = 0.10f),
-        )
-    }
     // Keep system-bar glyphs legible whichever way the theme leans.
     val view = androidx.compose.ui.platform.LocalView.current
     if (!view.isInEditMode) {
@@ -213,12 +200,30 @@ fun ChronicleTheme(mode: com.chronicle.app.data.ThemeMode, content: @Composable 
         }
     }
 
-    CompositionLocalProvider(LocalChronicleExtras provides extras) {
-        MaterialTheme(
-            colorScheme = if (dark) DarkColors else LightColors,
-            typography = ChronicleTypography,
-            shapes = ChronicleShapes,
-            content = content,
-        )
+    // Ink ⇄ Paper crossfades instead of hard-cutting.
+    Crossfade(targetState = dark, animationSpec = tween(ChronicleMotion.THEME), label = "theme") { isDark ->
+        val extras = if (isDark) {
+            Extras(
+                hairline = HairlineDark,
+                raised = InkRaised,
+                faint = PaperInkFaint,
+                accentSoft = BrassLight.copy(alpha = 0.14f),
+            )
+        } else {
+            Extras(
+                hairline = Hairline,
+                raised = IvoryRaised,
+                faint = InkFaint,
+                accentSoft = Brass.copy(alpha = 0.10f),
+            )
+        }
+        CompositionLocalProvider(LocalChronicleExtras provides extras) {
+            MaterialTheme(
+                colorScheme = if (isDark) DarkColors else LightColors,
+                typography = ChronicleTypography,
+                shapes = ChronicleShapes,
+                content = content,
+            )
+        }
     }
 }

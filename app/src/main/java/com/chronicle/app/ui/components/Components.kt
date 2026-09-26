@@ -4,11 +4,13 @@ import androidx.annotation.DrawableRes
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,12 +37,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.chronicle.app.R
 import com.chronicle.app.ui.theme.ChronicleExtras
+import com.chronicle.app.ui.theme.ChronicleMotion
 import com.chronicle.app.ui.theme.MetaStyle
 import com.chronicle.app.ui.theme.MetaStyleLarge
 
@@ -108,28 +112,45 @@ fun RecordButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val press = remember { MutableInteractionSource() }
+    val pressed by press.collectIsPressedAsState()
     val ringScale by animateFloatAsState(
-        targetValue = if (recording) 1.04f else 1f,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = Spring.DampingRatioMediumBouncy),
+        targetValue = when {
+            pressed -> 0.92f
+            recording -> 1.04f
+            else -> 1f
+        },
+        animationSpec = if (pressed) {
+            ChronicleMotion.pressSpring
+        } else {
+            spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = Spring.DampingRatioMediumBouncy)
+        },
         label = "ring",
     )
+    // Glyph crossfades mic ⇄ stop.
     Box(
         modifier = modifier
             .size(96.dp)
+            .graphicsLayer { scaleX = ringScale; scaleY = ringScale }
             .clip(CircleShape)
             .border(1.dp, ChronicleExtras.hairline, CircleShape)
             .clickable(
-                interactionSource = remember { MutableInteractionSource() },
+                interactionSource = press,
                 indication = null,
                 onClick = onClick,
             ),
         contentAlignment = Alignment.Center,
     ) {
-        // Inner glyph: mic → stop square while recording.
-        if (recording) {
-            ChronicleIcon(R.drawable.ic_stop, "Stop", tint = MaterialTheme.colorScheme.primary)
-        } else {
-            ChronicleIcon(R.drawable.ic_mic, "Record", tint = MaterialTheme.colorScheme.primary)
+        androidx.compose.animation.Crossfade(
+            targetState = recording,
+            animationSpec = tween(ChronicleMotion.MICRO),
+            label = "recGlyph",
+        ) { isRecording ->
+            if (isRecording) {
+                ChronicleIcon(R.drawable.ic_stop, "Stop", tint = MaterialTheme.colorScheme.primary)
+            } else {
+                ChronicleIcon(R.drawable.ic_mic, "Record", tint = MaterialTheme.colorScheme.primary)
+            }
         }
     }
 }

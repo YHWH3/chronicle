@@ -5,6 +5,10 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,6 +32,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -49,6 +54,7 @@ import com.chronicle.app.ui.components.Hairline
 import com.chronicle.app.ui.components.Masthead
 import com.chronicle.app.ui.components.MetaText
 import com.chronicle.app.ui.theme.ChronicleExtras
+import com.chronicle.app.ui.theme.ChronicleMotion
 import com.chronicle.app.ui.vm.ReminderChoice
 import com.chronicle.app.ui.vm.TasksViewModel
 import com.chronicle.app.ui.vm.asLocalDateTime
@@ -111,6 +117,7 @@ fun TasksScreen(viewModel: TasksViewModel) {
 
         items(state.open, key = { it.id }) { task ->
             TaskRow(
+                modifier = Modifier.animateItem(),
                 task = task,
                 onToggle = {
                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -129,6 +136,7 @@ fun TasksScreen(viewModel: TasksViewModel) {
             }
             items(state.done, key = { "done-${it.id}" }) { task ->
                 TaskRow(
+                    modifier = Modifier.animateItem(),
                     task = task,
                     onToggle = { viewModel.toggleDone(task) },
                     onDelete = { viewModel.delete(task) },
@@ -207,31 +215,48 @@ private fun NewTaskRow(
 }
 
 @Composable
-private fun TaskRow(task: TaskEntity, onToggle: () -> Unit, onDelete: () -> Unit) {
+private fun TaskRow(
+    task: TaskEntity,
+    onToggle: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 16.dp),
     ) {
         // The ring that completes.
+        val ringColor by animateColorAsState(
+            targetValue = if (task.done) MaterialTheme.colorScheme.primary else ChronicleExtras.faint,
+            animationSpec = tween(ChronicleMotion.MICRO, easing = ChronicleMotion.StandardEasing),
+            label = "ring",
+        )
+        val ringFill by animateColorAsState(
+            targetValue = if (task.done) MaterialTheme.colorScheme.primary
+            else androidx.compose.ui.graphics.Color.Transparent,
+            animationSpec = tween(ChronicleMotion.MICRO, easing = ChronicleMotion.StandardEasing),
+            label = "ringFill",
+        )
         Box(
             modifier = Modifier
                 .size(22.dp)
+                .minimumInteractiveComponentSize()
                 .clip(CircleShape)
-                .border(
-                    1.dp,
-                    if (task.done) MaterialTheme.colorScheme.primary else ChronicleExtras.faint,
-                    CircleShape,
-                )
-                .background(
-                    if (task.done) MaterialTheme.colorScheme.primary
-                    else androidx.compose.ui.graphics.Color.Transparent,
-                )
+                .border(1.dp, ringColor, CircleShape)
+                .background(ringFill)
                 .clickable(onClick = onToggle),
             contentAlignment = Alignment.Center,
         ) {
-            if (task.done) {
+            androidx.compose.animation.AnimatedVisibility(
+                visible = task.done,
+                enter = androidx.compose.animation.scaleIn(
+                    tween(ChronicleMotion.MICRO, easing = ChronicleMotion.StandardEasing),
+                    initialScale = 0.5f,
+                ) + fadeIn(tween(ChronicleMotion.MICRO)),
+                exit = fadeOut(tween(ChronicleMotion.MICRO)),
+            ) {
                 ChronicleIcon(
                     R.drawable.ic_check, "Done",
                     tint = MaterialTheme.colorScheme.onPrimary,
@@ -241,10 +266,15 @@ private fun TaskRow(task: TaskEntity, onToggle: () -> Unit, onDelete: () -> Unit
         }
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
+            val titleColor by animateColorAsState(
+                targetValue = if (task.done) ChronicleExtras.faint else MaterialTheme.colorScheme.onSurface,
+                animationSpec = tween(ChronicleMotion.ENTER, easing = ChronicleMotion.StandardEasing),
+                label = "title",
+            )
             Text(
                 text = task.title,
                 style = MaterialTheme.typography.bodyLarge,
-                color = if (task.done) ChronicleExtras.faint else MaterialTheme.colorScheme.onSurface,
+                color = titleColor,
                 textDecoration = if (task.done) TextDecoration.LineThrough else null,
             )
             task.remindAt?.let { ms ->
@@ -269,6 +299,7 @@ private fun TaskRow(task: TaskEntity, onToggle: () -> Unit, onDelete: () -> Unit
             tint = ChronicleExtras.faint,
             modifier = Modifier
                 .size(16.dp)
+                .minimumInteractiveComponentSize()
                 .clickable(onClick = onDelete),
         )
     }

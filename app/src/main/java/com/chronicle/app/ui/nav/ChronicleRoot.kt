@@ -3,6 +3,8 @@ package com.chronicle.app.ui.nav
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -50,6 +53,7 @@ import com.chronicle.app.ui.screens.StoryScreen
 import com.chronicle.app.ui.screens.TasksScreen
 import com.chronicle.app.ui.screens.TodayScreen
 import com.chronicle.app.ui.theme.ChronicleExtras
+import com.chronicle.app.ui.theme.ChronicleMotion
 import com.chronicle.app.ui.vm.JournalViewModel
 import com.chronicle.app.ui.vm.SettingsViewModel
 import com.chronicle.app.ui.vm.StoryViewModel
@@ -94,10 +98,34 @@ fun ChronicleRoot(container: AppContainer) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            enterTransition = { fadeIn(tween(240)) },
-            exitTransition = { fadeOut(tween(200)) },
-            popEnterTransition = { fadeIn(tween(240)) },
-            popExitTransition = { fadeOut(tween(200)) },
+            enterTransition = {
+                fadeIn(tween(ChronicleMotion.NAV, easing = ChronicleMotion.EnterEasing)) +
+                    slideInVertically(
+                        tween(ChronicleMotion.NAV, easing = ChronicleMotion.EnterEasing),
+                        initialOffsetY = { it / 40 },
+                    )
+            },
+            exitTransition = {
+                fadeOut(tween(ChronicleMotion.EXIT, easing = ChronicleMotion.ExitEasing)) +
+                    slideOutVertically(
+                        tween(ChronicleMotion.EXIT, easing = ChronicleMotion.ExitEasing),
+                        targetOffsetY = { it / 60 },
+                    )
+            },
+            popEnterTransition = {
+                fadeIn(tween(ChronicleMotion.NAV, easing = ChronicleMotion.EnterEasing)) +
+                    slideInVertically(
+                        tween(ChronicleMotion.NAV, easing = ChronicleMotion.EnterEasing),
+                        initialOffsetY = { it / 40 },
+                    )
+            },
+            popExitTransition = {
+                fadeOut(tween(ChronicleMotion.EXIT, easing = ChronicleMotion.ExitEasing)) +
+                    slideOutVertically(
+                        tween(ChronicleMotion.EXIT, easing = ChronicleMotion.ExitEasing),
+                        targetOffsetY = { it / 60 },
+                    )
+            },
         ) {
             composable(Routes.TODAY) {
                 val vm: TodayViewModel = viewModel(factory = vmFactory {
@@ -182,6 +210,11 @@ private fun ChronicleBar(currentRoute: String?, navController: NavHostController
         ) {
             for (dest in DESTINATIONS) {
                 val selected = currentRoute == dest.route
+                val tint by androidx.compose.animation.animateColorAsState(
+                    targetValue = if (selected) MaterialTheme.colorScheme.primary else ChronicleExtras.faint,
+                    animationSpec = tween(ChronicleMotion.MICRO, easing = ChronicleMotion.StandardEasing),
+                    label = "tabTint",
+                )
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
@@ -195,19 +228,17 @@ private fun ChronicleBar(currentRoute: String?, navController: NavHostController
                                 }
                             }
                         }
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                        .minimumInteractiveComponentSize(),
                 ) {
                     ChronicleIcon(
                         res = dest.icon,
                         contentDescription = dest.label,
-                        tint = if (selected) MaterialTheme.colorScheme.primary else ChronicleExtras.faint,
+                        tint = tint,
                         modifier = Modifier.size(20.dp),
                     )
                     Spacer(Modifier.height(5.dp))
-                    MetaText(
-                        text = dest.label,
-                        color = if (selected) MaterialTheme.colorScheme.primary else ChronicleExtras.faint,
-                    )
+                    MetaText(text = dest.label, color = tint)
                 }
             }
         }

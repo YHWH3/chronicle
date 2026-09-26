@@ -17,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -71,8 +72,10 @@ fun StoryScreen(viewModel: StoryViewModel, onOpenChapter: (Int) -> Unit) {
             }
         } else {
             items(story.chapters.asReversed(), key = { it.number }) { chapter ->
-                ChapterCard(chapter = chapter, onClick = { onOpenChapter(chapter.number) })
-                Spacer(Modifier.height(16.dp))
+                Column(Modifier.animateItem()) {
+                    ChapterCard(chapter = chapter, onClick = { onOpenChapter(chapter.number) })
+                    Spacer(Modifier.height(16.dp))
+                }
             }
         }
     }
@@ -138,14 +141,18 @@ fun StoryChapterScreen(
             ChronicleIcon(
                 R.drawable.ic_back, "Back",
                 tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.clickable(onClick = onBack),
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .clickable(onClick = onBack),
             )
             Spacer(Modifier.weight(1f))
             if (chapter != null) {
                 ChronicleIcon(
                     R.drawable.ic_share, "Share",
                     tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.clickable {
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .clickable {
                         val text = state.story?.toMarkdown().orEmpty()
                         val intent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"

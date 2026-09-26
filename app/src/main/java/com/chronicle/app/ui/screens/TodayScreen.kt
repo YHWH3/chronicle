@@ -6,8 +6,14 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -25,6 +31,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -48,6 +55,7 @@ import com.chronicle.app.ui.components.MetaText
 import com.chronicle.app.ui.components.RecordButton
 import com.chronicle.app.ui.components.Waveform
 import com.chronicle.app.ui.theme.ChronicleExtras
+import com.chronicle.app.ui.theme.ChronicleMotion
 import com.chronicle.app.ui.theme.SerifItalic
 import com.chronicle.app.ui.vm.CaptureMode
 import com.chronicle.app.ui.vm.RecordingState
@@ -111,7 +119,9 @@ fun TodayScreen(
                 R.drawable.ic_gear,
                 "Open details",
                 tint = ChronicleExtras.faint,
-                modifier = Modifier.clickable(onClick = onOpenSettings),
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .clickable(onClick = onOpenSettings),
             )
         }
 
@@ -138,20 +148,39 @@ fun TodayScreen(
             onKeep = { viewModel.saveDraft() },
         )
 
-        AnimatedVisibility(visible = state.confirmation != null, enter = fadeIn(), exit = fadeOut()) {
+        AnimatedVisibility(
+            visible = state.confirmation != null,
+            enter = fadeIn(tween(ChronicleMotion.ENTER, easing = ChronicleMotion.EnterEasing)) +
+                slideInVertically(
+                    tween(ChronicleMotion.ENTER, easing = ChronicleMotion.EnterEasing),
+                ) { it / 6 },
+            exit = fadeOut(tween(ChronicleMotion.EXIT, easing = ChronicleMotion.ExitEasing)),
+        ) {
             Column {
                 Spacer(Modifier.height(20.dp))
                 MetaText(text = state.confirmation.orEmpty(), color = MaterialTheme.colorScheme.primary)
             }
         }
 
-        if (state.todaysEntries.isNotEmpty()) {
-            Spacer(Modifier.height(40.dp))
-            LabelledSection(label = "Earlier today")
-            Spacer(Modifier.height(12.dp))
-            state.todaysEntries.take(3).forEachIndexed { i, entry ->
-                EntryRowCompact(entry)
-                if (i < minOf(2, state.todaysEntries.size - 1)) Hairline(Modifier.padding(vertical = 12.dp))
+        AnimatedVisibility(
+            visible = state.todaysEntries.isNotEmpty(),
+            enter = fadeIn(tween(ChronicleMotion.ENTER, easing = ChronicleMotion.EnterEasing)) +
+                expandVertically(
+                    tween(ChronicleMotion.ENTER, easing = ChronicleMotion.EnterEasing),
+                ),
+            exit = fadeOut(tween(ChronicleMotion.EXIT, easing = ChronicleMotion.ExitEasing)) +
+                shrinkVertically(tween(ChronicleMotion.EXIT, easing = ChronicleMotion.ExitEasing)),
+        ) {
+            Column {
+                Spacer(Modifier.height(40.dp))
+                LabelledSection(label = "Earlier today")
+                Spacer(Modifier.height(12.dp))
+                state.todaysEntries.take(3).forEachIndexed { i, entry ->
+                    EntryRowCompact(entry)
+                    if (i < minOf(2, state.todaysEntries.size - 1)) {
+                        Hairline(Modifier.padding(vertical = 12.dp))
+                    }
+                }
             }
         }
         Spacer(Modifier.height(48.dp))
@@ -178,66 +207,119 @@ private fun CaptureArea(
     onKeep: () -> Unit,
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        if (state.recording == RecordingState.RECORDING) {
-            Waveform(amplitudes = state.amplitudes, modifier = Modifier.padding(vertical = 12.dp))
-            Spacer(Modifier.height(20.dp))
-            MetaText(text = formatElapsed(state.elapsedMs), color = MaterialTheme.colorScheme.primary, large = true)
-            if (state.liveTranscript.isNotBlank()) {
-                Spacer(Modifier.height(18.dp))
-                Text(
-                    text = state.liveTranscript,
-                    style = SerifItalic,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
-            }
-            Spacer(Modifier.height(28.dp))
-            RecordButton(recording = true, onClick = onStop)
-            Spacer(Modifier.height(14.dp))
-            MetaText(text = "Tap to keep")
-            Spacer(Modifier.height(6.dp))
-            MetaText(
-                text = "Discard",
-                modifier = Modifier.clickable(onClick = onCancel).padding(8.dp),
-            )
-        } else if (state.processing) {
-            Spacer(Modifier.height(12.dp))
-            MetaText(text = "Reading your words…", color = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.height(12.dp))
-        } else {
-            ModeSwitch(mode = state.mode, onMode = onMode)
-            Spacer(Modifier.height(32.dp))
-            when (state.mode) {
-                CaptureMode.SPEAK -> {
-                    RecordButton(recording = false, onClick = onSpeak)
-                    Spacer(Modifier.height(16.dp))
-                    MetaText(text = "Tap · speak your day")
-                }
-                CaptureMode.WRITE -> {
-                    WriteField(
-                        draft = state.draftText,
-                        saving = state.saving,
-                        onDraft = onDraft,
-                        onKeep = onKeep,
-                    )
+        // Capture phases crossfade: idle speak/write ⇄ recording ⇄ processing.
+        val phase = when {
+            state.recording == RecordingState.RECORDING -> CapturePhase.RECORDING
+            state.processing -> CapturePhase.PROCESSING
+            else -> CapturePhase.IDLE
+        }
+        Crossfade(
+            targetState = phase,
+            animationSpec = tween(ChronicleMotion.NAV, easing = ChronicleMotion.StandardEasing),
+            label = "capture",
+        ) { p ->
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                when (p) {
+                    CapturePhase.RECORDING -> {
+                        Waveform(
+                            amplitudes = state.amplitudes,
+                            modifier = Modifier.padding(vertical = 12.dp),
+                        )
+                        Spacer(Modifier.height(20.dp))
+                        MetaText(
+                            text = formatElapsed(state.elapsedMs),
+                            color = MaterialTheme.colorScheme.primary,
+                            large = true,
+                        )
+                        if (state.liveTranscript.isNotBlank()) {
+                            Spacer(Modifier.height(18.dp))
+                            Text(
+                                text = state.liveTranscript,
+                                style = SerifItalic,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                        Spacer(Modifier.height(28.dp))
+                        RecordButton(recording = true, onClick = onStop)
+                        Spacer(Modifier.height(14.dp))
+                        MetaText(text = "Tap to keep")
+                        Spacer(Modifier.height(6.dp))
+                        MetaText(
+                            text = "Discard",
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .clickable(onClick = onCancel)
+                                .padding(8.dp),
+                        )
+                    }
+                    CapturePhase.PROCESSING -> {
+                        Spacer(Modifier.height(12.dp))
+                        MetaText(
+                            text = "Reading your words…",
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                    }
+                    CapturePhase.IDLE -> {
+                        ModeSwitch(mode = state.mode, onMode = onMode)
+                        Spacer(Modifier.height(32.dp))
+                        Crossfade(
+                            targetState = state.mode,
+                            animationSpec = tween(
+                                ChronicleMotion.ENTER,
+                                easing = ChronicleMotion.StandardEasing,
+                            ),
+                            label = "captureMode",
+                        ) { m ->
+                            if (m == CaptureMode.SPEAK) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    RecordButton(recording = false, onClick = onSpeak)
+                                    Spacer(Modifier.height(16.dp))
+                                    MetaText(text = "Tap · speak your day")
+                                }
+                            } else {
+                                WriteField(
+                                    draft = state.draftText,
+                                    saving = state.saving,
+                                    onDraft = onDraft,
+                                    onKeep = onKeep,
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 }
 
+private enum class CapturePhase { IDLE, RECORDING, PROCESSING }
+
 @Composable
 private fun ModeSwitch(mode: CaptureMode, onMode: (CaptureMode) -> Unit) {
     Row {
         CaptureMode.entries.forEach { m ->
             val selected = m == mode
+            val labelColor by animateColorAsState(
+                targetValue = if (selected) MaterialTheme.colorScheme.onSurface else ChronicleExtras.faint,
+                animationSpec = tween(ChronicleMotion.MICRO, easing = ChronicleMotion.StandardEasing),
+                label = "modeLabel",
+            )
+            val ruleColor by animateColorAsState(
+                targetValue = if (selected) MaterialTheme.colorScheme.primary else ChronicleExtras.hairline,
+                animationSpec = tween(ChronicleMotion.MICRO, easing = ChronicleMotion.StandardEasing),
+                label = "modeRule",
+            )
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.clickable { onMode(m) },
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .clickable { onMode(m) },
             ) {
                 MetaText(
                     text = if (m == CaptureMode.SPEAK) "Speak" else "Write",
-                    color = if (selected) MaterialTheme.colorScheme.onSurface else ChronicleExtras.faint,
+                    color = labelColor,
                     large = true,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -245,9 +327,7 @@ private fun ModeSwitch(mode: CaptureMode, onMode: (CaptureMode) -> Unit) {
                     Modifier
                         .width(72.dp)
                         .height(1.dp)
-                        .background(
-                            if (selected) MaterialTheme.colorScheme.primary else ChronicleExtras.hairline,
-                        ),
+                        .background(ruleColor),
                 )
             }
             Spacer(Modifier.width(24.dp))
