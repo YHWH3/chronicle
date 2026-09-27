@@ -143,6 +143,7 @@ fun ChronicleRoot(container: AppContainer) {
                         TodayScreen(
                             vm,
                             onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                            onOpenJournal = { navController.navigateToTab(Routes.JOURNAL) },
                         )
                     }
                     composable(Routes.JOURNAL) {

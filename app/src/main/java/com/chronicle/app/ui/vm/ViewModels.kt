@@ -45,6 +45,20 @@ enum class CaptureMode { SPEAK, WRITE }
 
 enum class RecordingState { IDLE, RECORDING }
 
+enum class ProcessingStep { TRANSCRIBING, SAVING, READING }
+
+/** An intention the mind pulled out of a capture, for the Kept card. */
+data class KeptIntention(val title: String, val remindAt: LocalDateTime?)
+
+/** What the save produced — drives the Kept phase. */
+data class KeptSummary(
+    val reminders: Int,
+    val intentions: List<KeptIntention>,
+    val reflection: String?,
+    val engineLabel: String,
+    val entryId: Long,
+)
+
 data class TodayUiState(
     val mode: CaptureMode = CaptureMode.SPEAK,
     val recording: RecordingState = RecordingState.IDLE,
@@ -54,8 +68,8 @@ data class TodayUiState(
     val draftText: String = "",
     val speechAvailable: Boolean = true,
     val micPermissionGranted: Boolean = false,
-    /** One-shot confirmation shown after a save: "Kept — 2 reminders set". */
-    val confirmation: String? = null,
+    /** Set after a save completes — the Kept phase. */
+    val kept: KeptSummary? = null,
     val todaysEntries: List<JournalEntry> = emptyList(),
     /** A save is in flight — guards against double-taps duplicating entries. */
     val saving: Boolean = false,
@@ -63,6 +77,8 @@ data class TodayUiState(
     val sttEngine: SttEngine = SttEngine.SYSTEM,
     /** True while the mind model or transcription is chewing on the take. */
     val processing: Boolean = false,
+    /** Which leg of the capture pipeline is running, for the step list. */
+    val processingStep: ProcessingStep? = null,
     /** Name of the mind backend that handled the last capture (for the hint line). */
     val mindLabel: String = "",
 )
@@ -127,7 +143,7 @@ class TodayViewModel(
 
     fun setMode(mode: CaptureMode) {
         if (_state.value.recording == RecordingState.RECORDING) return
-        _state.value = _state.value.copy(mode = mode, confirmation = null)
+        _state.value = _state.value.copy(mode = mode, kept = null)
     }
 
     fun setDraft(text: String) {
@@ -149,7 +165,7 @@ class TodayViewModel(
             _state.value = _state.value.copy(
                 recording = RecordingState.RECORDING,
                 liveTranscript = "",
-                confirmation = null,
+                kept = null,
             )
         }
     }
@@ -165,13 +181,19 @@ class TodayViewModel(
         )
     }
 
+    fun dismissKept() {
+        _state.value = _state.value.copy(kept = null)
+    }
+
     private fun finishRecording() {
         if (_state.value.saving) return
         val take = recordingRecorder?.stop() ?: activeRecorder().stop()
+        val processingStart = System.currentTimeMillis()
         _state.value = _state.value.copy(
             recording = RecordingState.IDLE,
             saving = true,
             processing = true,
+            processingStep = ProcessingStep.TRANSCRIBING,
         )
 
         viewModelScope.launch {
@@ -188,20 +210,26 @@ class TodayViewModel(
             try {
                 val (audioPath, duration) = take?.let { it.first.absolutePath to it.second } ?: (null to 0L)
                 if (transcript.isBlank() && audioPath == null) {
+                    awaitDwell(processingStart)
                     _state.value = _state.value.copy(
                         liveTranscript = "",
                         saving = false,
                         processing = false,
+                        processingStep = null,
                     )
                     return@launch
                 }
+                _state.value = _state.value.copy(processingStep = ProcessingStep.SAVING)
                 val entryId = journalRepository.addVoice(transcript, audioPath, duration)
-                val (created, mind) = materializeTasks(transcript, entryId)
+                _state.value = _state.value.copy(processingStep = ProcessingStep.READING)
+                val kept = materializeTasks(transcript, entryId)
+                awaitDwell(processingStart)
                 _state.value = _state.value.copy(
                     liveTranscript = "",
                     saving = false,
                     processing = false,
-                    confirmation = confirmationText(created, mind?.reflection, mindByline(engine)),
+                    processingStep = null,
+                    kept = kept,
                     mindLabel = engine.label,
                 )
             } catch (t: Throwable) {
@@ -209,6 +237,7 @@ class TodayViewModel(
                     liveTranscript = "",
                     saving = false,
                     processing = false,
+                    processingStep = null,
                 )
             }
         }
@@ -218,34 +247,55 @@ class TodayViewModel(
         if (_state.value.saving) return
         val text = _state.value.draftText.trim()
         if (text.isEmpty()) return
-        _state.value = _state.value.copy(saving = true)
+        val processingStart = System.currentTimeMillis()
+        _state.value = _state.value.copy(
+            saving = true,
+            processing = true,
+            processingStep = ProcessingStep.SAVING,
+        )
         viewModelScope.launch {
             try {
                 val entryId = journalRepository.addText(text)
-                val (created, mind) = materializeTasks(text, entryId)
+                _state.value = _state.value.copy(processingStep = ProcessingStep.READING)
+                val kept = materializeTasks(text, entryId)
+                awaitDwell(processingStart)
                 _state.value = _state.value.copy(
                     draftText = "",
                     saving = false,
                     processing = false,
-                    confirmation = confirmationText(created, mind?.reflection, mindByline(engine)),
+                    processingStep = null,
+                    kept = kept,
                     mindLabel = engine.label,
                 )
             } catch (t: Throwable) {
-                _state.value = _state.value.copy(saving = false, processing = false)
+                _state.value = _state.value.copy(
+                    saving = false,
+                    processing = false,
+                    processingStep = null,
+                )
             }
         }
     }
 
+    /** The morph Idle→Processing→Kept needs a beat — keep ≥700ms of processing. */
+    private suspend fun awaitDwell(startMs: Long) {
+        val remaining = 700L - (System.currentTimeMillis() - startMs)
+        if (remaining > 0) kotlinx.coroutines.delay(remaining)
+    }
+
     private var engine: com.chronicle.app.mind.MindEngine = com.chronicle.app.mind.DeterministicMind
-    /** Turns the captured words into reminders. Returns count + the mind's result. */
+    /** Turns the captured words into reminders. Reminder logic unchanged. */
     private suspend fun materializeTasks(
         text: String,
         entryId: Long,
-    ): Pair<Int, com.chronicle.app.mind.MindResult> {
-        if (text.isBlank()) return 0 to com.chronicle.app.mind.MindResult(emptyList())
+    ): KeptSummary {
+        if (text.isBlank()) {
+            return KeptSummary(0, emptyList(), null, engine.label, entryId)
+        }
         val (result, resolved) = mindRepository.extract(text, LocalDateTime.now())
         engine = resolved
         var reminders = 0
+        val intentions = mutableListOf<KeptIntention>()
         for (task in result.tasks) {
             val remindMs = task.remindAt?.toEpochMs()
             val id = taskRepository.add(task.title, remindMs, entryId)
@@ -253,25 +303,15 @@ class TodayViewModel(
                 ReminderScheduler.scheduleTask(context, id, task.title, remindMs)
                 reminders++
             }
+            intentions += KeptIntention(task.title, task.remindAt)
         }
-        return reminders to result
-    }
-
-    private fun mindByline(engine: com.chronicle.app.mind.MindEngine) =
-        "read by ${engine.label}"
-
-    private fun confirmationText(
-        reminders: Int,
-        reflection: String?,
-        byline: String,
-    ): String {
-        val base = when (reminders) {
-            0 -> "Kept."
-            1 -> "Kept — 1 reminder set."
-            else -> "Kept — $reminders reminders set."
-        }
-        val suffix = reflection?.take(90)?.let { " — $it" } ?: ""
-        return if (byline.isNotEmpty()) "$base$suffix\n$byline" else "$base$suffix"
+        return KeptSummary(
+            reminders = reminders,
+            intentions = intentions,
+            reflection = result.reflection,
+            engineLabel = engine.label,
+            entryId = entryId,
+        )
     }
 
     override fun onCleared() {
