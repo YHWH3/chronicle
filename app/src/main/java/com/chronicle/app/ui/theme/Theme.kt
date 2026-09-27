@@ -1,6 +1,7 @@
 package com.chronicle.app.ui.theme
 
-import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
@@ -200,30 +201,81 @@ fun ChronicleTheme(mode: com.chronicle.app.data.ThemeMode, content: @Composable 
         }
     }
 
-    // Ink ⇄ Paper crossfades instead of hard-cutting.
-    Crossfade(targetState = dark, animationSpec = tween(ChronicleMotion.THEME), label = "theme") { isDark ->
-        val extras = if (isDark) {
-            Extras(
-                hairline = HairlineDark,
-                raised = InkRaised,
-                faint = PaperInkFaint,
-                accentSoft = BrassLight.copy(alpha = 0.14f),
-            )
-        } else {
-            Extras(
-                hairline = Hairline,
-                raised = IvoryRaised,
-                faint = InkFaint,
-                accentSoft = Brass.copy(alpha = 0.10f),
-            )
-        }
-        CompositionLocalProvider(LocalChronicleExtras provides extras) {
-            MaterialTheme(
-                colorScheme = if (isDark) DarkColors else LightColors,
-                typography = ChronicleTypography,
-                shapes = ChronicleShapes,
-                content = content,
-            )
-        }
+    // Ink ⇄ Paper sweeps instead of hard-cutting: animate each token in place so
+    // the tree (and NavHost) stays composed — a structural crossfade would reset nav.
+    val targetScheme = if (dark) DarkColors else LightColors
+    val targetExtras = if (dark) {
+        Extras(
+            hairline = HairlineDark,
+            raised = InkRaised,
+            faint = PaperInkFaint,
+            accentSoft = BrassLight.copy(alpha = 0.14f),
+        )
+    } else {
+        Extras(
+            hairline = Hairline,
+            raised = IvoryRaised,
+            faint = InkFaint,
+            accentSoft = Brass.copy(alpha = 0.10f),
+        )
+    }
+    val scheme = targetScheme.copy(
+        primary = animColor(targetScheme.primary),
+        onPrimary = animColor(targetScheme.onPrimary),
+        primaryContainer = animColor(targetScheme.primaryContainer),
+        onPrimaryContainer = animColor(targetScheme.onPrimaryContainer),
+        inversePrimary = animColor(targetScheme.inversePrimary),
+        secondary = animColor(targetScheme.secondary),
+        onSecondary = animColor(targetScheme.onSecondary),
+        secondaryContainer = animColor(targetScheme.secondaryContainer),
+        onSecondaryContainer = animColor(targetScheme.onSecondaryContainer),
+        tertiary = animColor(targetScheme.tertiary),
+        onTertiary = animColor(targetScheme.onTertiary),
+        tertiaryContainer = animColor(targetScheme.tertiaryContainer),
+        onTertiaryContainer = animColor(targetScheme.onTertiaryContainer),
+        background = animColor(targetScheme.background),
+        onBackground = animColor(targetScheme.onBackground),
+        surface = animColor(targetScheme.surface),
+        onSurface = animColor(targetScheme.onSurface),
+        surfaceVariant = animColor(targetScheme.surfaceVariant),
+        onSurfaceVariant = animColor(targetScheme.onSurfaceVariant),
+        surfaceTint = animColor(targetScheme.surfaceTint),
+        inverseSurface = animColor(targetScheme.inverseSurface),
+        inverseOnSurface = animColor(targetScheme.inverseOnSurface),
+        error = animColor(targetScheme.error),
+        onError = animColor(targetScheme.onError),
+        errorContainer = animColor(targetScheme.errorContainer),
+        onErrorContainer = animColor(targetScheme.onErrorContainer),
+        outline = animColor(targetScheme.outline),
+        outlineVariant = animColor(targetScheme.outlineVariant),
+        scrim = animColor(targetScheme.scrim),
+        surfaceBright = animColor(targetScheme.surfaceBright),
+        surfaceDim = animColor(targetScheme.surfaceDim),
+        surfaceContainer = animColor(targetScheme.surfaceContainer),
+        surfaceContainerHigh = animColor(targetScheme.surfaceContainerHigh),
+        surfaceContainerHighest = animColor(targetScheme.surfaceContainerHighest),
+        surfaceContainerLow = animColor(targetScheme.surfaceContainerLow),
+        surfaceContainerLowest = animColor(targetScheme.surfaceContainerLowest),
+    )
+    val extras = Extras(
+        hairline = animColor(targetExtras.hairline),
+        raised = animColor(targetExtras.raised),
+        faint = animColor(targetExtras.faint),
+        accentSoft = animColor(targetExtras.accentSoft),
+    )
+    CompositionLocalProvider(LocalChronicleExtras provides extras) {
+        MaterialTheme(
+            colorScheme = scheme,
+            typography = ChronicleTypography,
+            shapes = ChronicleShapes,
+            content = content,
+        )
     }
 }
+
+private val ThemeColorSpec: FiniteAnimationSpec<Color> =
+    tween(ChronicleMotion.THEME, easing = ChronicleMotion.StandardEasing)
+
+@Composable
+private fun animColor(target: Color) =
+    animateColorAsState(targetValue = target, animationSpec = ThemeColorSpec, label = "themeColor").value

@@ -24,6 +24,15 @@ description: How to drive Chronicle Android E2E on the emulator — Maestro quir
 - `doubleTapOn` works (2.10.0) — used for the double-tap-KEEP edge case.
 - `takeScreenshot:` artifacts land in `~/.maestro/tests/<timestamp>/<flow>/takeScreenshot/`; per-step failure shots in `screenshots/step-NNN-*.png`.
 
+## Post-motion-pass additions (bf8cce2)
+- During recording, "TAP TO KEEP" is only a caption — the clickable target is the big stop ring above it, `content-desc="Stop"`, bounds ≈[409,1010][671,1272] → tap (540,1141). DISCARD is the text button at [450,1356][630,1482]. Tapping the caption's text bounds does nothing.
+- Theme chips (INK/PAPER): on bf8cce2 a real theme change ejected the app to Today mid-crossfade (F5 — fixed in the token-animation build; theme tokens now tween in place and NavHost isn't recomposed). If a similar stray-nav ever resurfaces, recover with an `optional: true` `tapOn 'Open details'` to re-enter Settings.
+- Settings has NO bottom nav bar — flows that begin with nav-point taps must start with `launchApp` (lands on Today) or `pressKey: back`.
+- The KEPT confirmation is a single merged node `KEPT.\nREAD BY <ENGINE>` (post-motion) — assert with `'KEPT\.[\s\S]*'`.
+- Maestro 2.10 does NOT accept a top-level `when:` step — use `tapOn: {text: X, optional: true}` for state-tolerant steps.
+- The Parakeet model-row "Model download URL" label text isn't rendered anymore; assert the EditText's prefilled value (`https://github.com/k2-fsa.*`) instead.
+- `pm revoke` on an auto-granted permission does work (granted=false + USER_SET) — the dialog then appears on next use; but `pm clear` re-grants.
+
 ## Permission/perm-state quirks on the API-35 image
 - RECORD_AUDIO and POST_NOTIFICATIONS arrive auto-granted (no USER_SET flag) — permission dialogs never appear unless you `adb shell pm revoke com.chronicle.app android.permission.<PERM>` first. `pm revoke`/`pm clear` force-stop the app → relaunch with monkey.
 - Dangerous-permission dialog buttons: "While using the app" / "Only this time" / "Don't allow" (Maestro-visible; `'Don.t allow'` regex sidesteps the apostrophe).
