@@ -18,12 +18,13 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -43,7 +44,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
@@ -99,6 +99,7 @@ import java.util.Locale
 
 private enum class Phase { IDLE, RECORDING, PROCESSING, KEPT }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun TodayScreen(
     viewModel: TodayViewModel,
@@ -172,13 +173,10 @@ fun TodayScreen(
     ) {
         when (it) {
             Phase.IDLE -> 0.55f
-            Phase.RECORDING -> 0.82f
+            Phase.RECORDING -> 0.78f
             Phase.PROCESSING -> 0.24f
             Phase.KEPT -> 0.26f
         }
-    }
-    val greetingBlur by transition.animateFloat({ spec }, label = "blur") {
-        if (it == Phase.IDLE) 0f else 12f
     }
     // Write-mode idle has no capture circle.
     val writeIdleA by animateFloatAsState(
@@ -202,6 +200,9 @@ fun TodayScreen(
         val H = constraints.maxHeight.toFloat()
         val density = LocalDensity.current
         val bottomPad = LocalBottomBarPadding.current
+        // On 360x640dp-class screens the bottom card needs more room —
+        // raise the capture circle a touch.
+        val compactHeight = maxHeight < 700.dp
 
         // Circle size scales with the phone: 112–148dp idle.
         val idleSize = with(density) { (H * 0.20f).toDp().coerceIn(112.dp, 148.dp) }
@@ -243,25 +244,25 @@ fun TodayScreen(
             Column(
                 Modifier
                     .fillMaxWidth()
+                    .offset { IntOffset(0, (H * 0.08f).toInt()) }
                     .padding(horizontal = Spacing.screenMargin)
                     .graphicsLayer {
                         alpha = idleA
                         translationY = (1f - idleA) * (-36f)
-                    }
-                    .then(
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            Modifier.blur(greetingBlur.dp)
-                        } else {
-                            Modifier
-                        },
-                    )
-                    .offset { IntOffset(0, (H * 0.08f).toInt()) },
+                    },
             ) {
+                // Two explicit lines so the break never depends on wrapping.
+                val words = greeting().split(" ")
                 Text(
-                    text = greeting().replace(Regex(" (?=\\S+\\.$)"), "\n"),
+                    text = words.dropLast(1).joinToString(" "),
                     style = type.display,
                     color = p.textPrimary,
                     modifier = Modifier.semantics { heading() },
+                )
+                Text(
+                    text = words.last(),
+                    style = type.display,
+                    color = p.textPrimary,
                 )
                 Spacer(Modifier.height(14.dp))
                 Text(
@@ -273,12 +274,22 @@ fun TodayScreen(
         }
 
         // ————— Speak/Write pills —————
+        // Fade while the IME is up so they never sit on top of the field.
+        val imeVisible = WindowInsets.isImeVisible
+        val pillsImeA by animateFloatAsState(
+            targetValue = if (imeVisible) 0f else 1f,
+            animationSpec = tween(ChronicleMotion.EXIT),
+            label = "pillsIme",
+        )
         if (idleA > 0.01f) {
             Box(
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = Spacing.screenMargin)
-                    .graphicsLayer { alpha = idleA; translationY = (1f - idleA) * (-24f) }
+                    .graphicsLayer {
+                        alpha = idleA * pillsImeA
+                        translationY = (1f - idleA) * (-24f)
+                    }
                     .offset { IntOffset(0, (H * 0.30f).toInt()) },
                 contentAlignment = Alignment.Center,
             ) {
@@ -307,7 +318,8 @@ fun TodayScreen(
                     .offset {
                         IntOffset(
                             (W * 0.5f - sizePx / 2f).toInt(),
-                            (H * cy - sizePx / 2f).toInt(),
+                            (H * (if (phase == Phase.IDLE && compactHeight) 0.50f else cy)
+                                - sizePx / 2f).toInt(),
                         )
                     }
                     .size(circleSize)
@@ -344,7 +356,10 @@ fun TodayScreen(
                 Modifier
                     .fillMaxWidth()
                     .alpha(idleA * writeIdleA)
-                    .offset { IntOffset(0, (H * 0.55f + with(density) { idleSize.toPx() } / 2 + 56).toInt()) },
+                    .offset {
+                        val circleCy = if (compactHeight) 0.50f else cy
+                        IntOffset(0, (H * circleCy + with(density) { idleSize.toPx() } / 2 + 24).toInt())
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -413,8 +428,7 @@ fun TodayScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(bottom = 28.dp)
+                    .padding(bottom = bottomPad + 24.dp)
                     .alpha(recA),
             ) {
                 Column(

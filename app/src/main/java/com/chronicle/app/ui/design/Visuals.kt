@@ -51,7 +51,7 @@ fun GradientWaveform(
     height: Dp = 72.dp,
 ) {
     // Idle breathing so the strip never looks dead.
-    val idle = amplitudes.all { it < 0.02f }
+    val idle = amplitudes.all { it < 0.08f }
     val ambient = rememberInfiniteTransition(label = "waveAmbient")
     val t by ambient.animateFloat(
         initialValue = 0f, targetValue = (2 * PI).toFloat(),
@@ -71,9 +71,9 @@ fun GradientWaveform(
         for (i in 0 until count) {
             val raw = amplitudes.getOrElse(i) { 0f }
             val amp = if (idle) {
-                0.20f + 0.14f * sin(t + i * 0.45f)
+                0.30f + 0.18f * sin(t + i * 0.45f)
             } else {
-                raw
+                (raw * 2.2f).coerceAtLeast(0.12f)
             }
             val frac = i.toFloat() / (count - 1)
             val color = lerpColor(GradientStart, GradientEnd, frac)
