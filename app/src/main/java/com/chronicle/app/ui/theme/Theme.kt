@@ -4,7 +4,11 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material.ripple.RippleAlpha
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RippleConfiguration
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -22,8 +26,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.chronicle.app.R
+import com.chronicle.app.ui.design.ChroniclePalette
+import com.chronicle.app.ui.design.InkPalette
+import com.chronicle.app.ui.design.LocalPalette
+import com.chronicle.app.ui.design.OnGradient
+import com.chronicle.app.ui.design.PaperPalette
 
-// ————— Palette: warm ivory & deep ink, one brass accent. —————
+// ————— Legacy tokens kept for the untouched screens. —————
 
 val Ivory = Color(0xFFFAF9F7)
 val IvoryRaised = Color(0xFFFFFFFF)
@@ -33,60 +42,7 @@ val InkFaint = Color(0xFFB5AFA5)
 val Brass = Color(0xFFA87434)
 val Hairline = Color(0xFFE8E4DD)
 
-val InkCanvas = Color(0xFF1A1B1F)
-val InkRaised = Color(0xFF23252B)
-val PaperInk = Color(0xFFF0EDE8)
-val PaperInkSecondary = Color(0xFFA39E94)
-val PaperInkFaint = Color(0xFF5E5A53)
-val BrassLight = Color(0xFFD4A574)
-val HairlineDark = Color(0xFF2E3036)
-
-private val LightColors = lightColorScheme(
-    primary = Brass,
-    onPrimary = IvoryRaised,
-    primaryContainer = Ivory,
-    onPrimaryContainer = Ink,
-    secondary = InkSecondary,
-    onSecondary = IvoryRaised,
-    background = Ivory,
-    onBackground = Ink,
-    surface = Ivory,
-    onSurface = Ink,
-    surfaceVariant = IvoryRaised,
-    onSurfaceVariant = InkSecondary,
-    outline = Hairline,
-    outlineVariant = Hairline,
-    surfaceContainerLowest = Ivory,
-    surfaceContainerLow = Ivory,
-    surfaceContainer = IvoryRaised,
-    surfaceContainerHigh = IvoryRaised,
-    surfaceContainerHighest = IvoryRaised,
-)
-
-private val DarkColors = darkColorScheme(
-    primary = BrassLight,
-    onPrimary = InkCanvas,
-    primaryContainer = InkRaised,
-    onPrimaryContainer = PaperInk,
-    secondary = PaperInkSecondary,
-    onSecondary = InkCanvas,
-    background = InkCanvas,
-    onBackground = PaperInk,
-    surface = InkCanvas,
-    onSurface = PaperInk,
-    surfaceVariant = InkRaised,
-    onSurfaceVariant = PaperInkSecondary,
-    outline = HairlineDark,
-    outlineVariant = HairlineDark,
-    surfaceContainerLowest = InkCanvas,
-    surfaceContainerLow = InkCanvas,
-    surfaceContainer = InkRaised,
-    surfaceContainerHigh = InkRaised,
-    surfaceContainerHighest = InkRaised,
-)
-
-// ————— Custom tokens the M3 scheme doesn't carry. —————
-
+/** Custom tokens the M3 scheme doesn't carry — now derived from the palette. */
 @Immutable
 data class Extras(
     val hairline: Color,
@@ -183,6 +139,14 @@ val ChronicleShapes = Shapes(
     large = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
 )
 
+private val ThemeColorSpec: FiniteAnimationSpec<Color> =
+    tween(ChronicleMotion.THEME, easing = ChronicleMotion.StandardEasing)
+
+@Composable
+private fun animColor(target: Color) =
+    animateColorAsState(targetValue = target, animationSpec = ThemeColorSpec, label = "themeColor").value
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChronicleTheme(mode: com.chronicle.app.data.ThemeMode, content: @Composable () -> Unit) {
     val dark = when (mode) {
@@ -201,69 +165,72 @@ fun ChronicleTheme(mode: com.chronicle.app.data.ThemeMode, content: @Composable 
         }
     }
 
-    // Ink ⇄ Paper sweeps instead of hard-cutting: animate each token in place so
-    // the tree (and NavHost) stays composed — a structural crossfade would reset nav.
-    val targetScheme = if (dark) DarkColors else LightColors
-    val targetExtras = if (dark) {
-        Extras(
-            hairline = HairlineDark,
-            raised = InkRaised,
-            faint = PaperInkFaint,
-            accentSoft = BrassLight.copy(alpha = 0.14f),
-        )
-    } else {
-        Extras(
-            hairline = Hairline,
-            raised = IvoryRaised,
-            faint = InkFaint,
-            accentSoft = Brass.copy(alpha = 0.10f),
-        )
-    }
-    val scheme = targetScheme.copy(
-        primary = animColor(targetScheme.primary),
-        onPrimary = animColor(targetScheme.onPrimary),
-        primaryContainer = animColor(targetScheme.primaryContainer),
-        onPrimaryContainer = animColor(targetScheme.onPrimaryContainer),
-        inversePrimary = animColor(targetScheme.inversePrimary),
-        secondary = animColor(targetScheme.secondary),
-        onSecondary = animColor(targetScheme.onSecondary),
-        secondaryContainer = animColor(targetScheme.secondaryContainer),
-        onSecondaryContainer = animColor(targetScheme.onSecondaryContainer),
-        tertiary = animColor(targetScheme.tertiary),
-        onTertiary = animColor(targetScheme.onTertiary),
-        tertiaryContainer = animColor(targetScheme.tertiaryContainer),
-        onTertiaryContainer = animColor(targetScheme.onTertiaryContainer),
-        background = animColor(targetScheme.background),
-        onBackground = animColor(targetScheme.onBackground),
-        surface = animColor(targetScheme.surface),
-        onSurface = animColor(targetScheme.onSurface),
-        surfaceVariant = animColor(targetScheme.surfaceVariant),
-        onSurfaceVariant = animColor(targetScheme.onSurfaceVariant),
-        surfaceTint = animColor(targetScheme.surfaceTint),
-        inverseSurface = animColor(targetScheme.inverseSurface),
-        inverseOnSurface = animColor(targetScheme.inverseOnSurface),
-        error = animColor(targetScheme.error),
-        onError = animColor(targetScheme.onError),
-        errorContainer = animColor(targetScheme.errorContainer),
-        onErrorContainer = animColor(targetScheme.onErrorContainer),
-        outline = animColor(targetScheme.outline),
-        outlineVariant = animColor(targetScheme.outlineVariant),
-        scrim = animColor(targetScheme.scrim),
-        surfaceBright = animColor(targetScheme.surfaceBright),
-        surfaceDim = animColor(targetScheme.surfaceDim),
-        surfaceContainer = animColor(targetScheme.surfaceContainer),
-        surfaceContainerHigh = animColor(targetScheme.surfaceContainerHigh),
-        surfaceContainerHighest = animColor(targetScheme.surfaceContainerHighest),
-        surfaceContainerLow = animColor(targetScheme.surfaceContainerLow),
-        surfaceContainerLowest = animColor(targetScheme.surfaceContainerLowest),
+    // Ink ⇄ Paper sweeps instead of hard-cutting: animate each palette token in
+    // place so the tree (and NavHost) stays composed — a structural crossfade
+    // would reset navigation.
+    val target = if (dark) InkPalette else PaperPalette
+    val palette = ChroniclePalette(
+        textPrimary = animColor(target.textPrimary),
+        textSecondary = animColor(target.textSecondary),
+        textTertiary = animColor(target.textTertiary),
+        accent = animColor(target.accent),
+        accentSoft = animColor(target.accentSoft),
+        peach = animColor(target.peach),
+        warning = animColor(target.warning),
+        surfaceSubtle = animColor(target.surfaceSubtle),
+        surfaceFrosted = animColor(target.surfaceFrosted),
+        surfaceFrostedStroke = animColor(target.surfaceFrostedStroke),
+        surfaceSelected = animColor(target.surfaceSelected),
+        surfaceSelectedStroke = animColor(target.surfaceSelectedStroke),
+        surfaceElevated = animColor(target.surfaceElevated),
+        scrim = animColor(target.scrim),
+        isDark = dark,
     )
+
+    // MaterialTheme stays wired underneath — text selection, cursors and the
+    // untouched screens read the colorScheme, which the palette now drives.
+    // background/surface stay transparent so the atmosphere shows through.
+    val base = if (dark) darkColorScheme() else lightColorScheme()
+    val scheme = base.copy(
+        primary = palette.accent,
+        onPrimary = OnGradient,
+        primaryContainer = palette.accentSoft,
+        onPrimaryContainer = palette.textPrimary,
+        secondary = palette.textSecondary,
+        onSecondary = palette.textPrimary,
+        background = Color.Transparent,
+        onBackground = palette.textPrimary,
+        surface = Color.Transparent,
+        onSurface = palette.textPrimary,
+        surfaceVariant = palette.surfaceFrosted,
+        onSurfaceVariant = palette.textSecondary,
+        outline = palette.surfaceFrostedStroke,
+        outlineVariant = palette.surfaceFrostedStroke,
+        error = palette.warning,
+        onError = OnGradient,
+        scrim = palette.scrim,
+        surfaceContainerLowest = Color.Transparent,
+        surfaceContainerLow = palette.surfaceSubtle,
+        surfaceContainer = palette.surfaceFrosted,
+        surfaceContainerHigh = palette.surfaceElevated,
+        surfaceContainerHighest = palette.surfaceElevated,
+    )
+
     val extras = Extras(
-        hairline = animColor(targetExtras.hairline),
-        raised = animColor(targetExtras.raised),
-        faint = animColor(targetExtras.faint),
-        accentSoft = animColor(targetExtras.accentSoft),
+        hairline = palette.textPrimary.copy(alpha = 0.12f),
+        raised = palette.surfaceElevated,
+        faint = palette.textTertiary,
+        accentSoft = palette.accentSoft,
     )
-    CompositionLocalProvider(LocalChronicleExtras provides extras) {
+
+    CompositionLocalProvider(
+        LocalPalette provides palette,
+        LocalChronicleExtras provides extras,
+        LocalRippleConfiguration provides RippleConfiguration(
+            color = palette.textPrimary,
+            rippleAlpha = RippleAlpha(0.08f, 0.08f, 0.08f, 0.08f),
+        ),
+    ) {
         MaterialTheme(
             colorScheme = scheme,
             typography = ChronicleTypography,
@@ -272,10 +239,3 @@ fun ChronicleTheme(mode: com.chronicle.app.data.ThemeMode, content: @Composable 
         )
     }
 }
-
-private val ThemeColorSpec: FiniteAnimationSpec<Color> =
-    tween(ChronicleMotion.THEME, easing = ChronicleMotion.StandardEasing)
-
-@Composable
-private fun animColor(target: Color) =
-    animateColorAsState(targetValue = target, animationSpec = ThemeColorSpec, label = "themeColor").value

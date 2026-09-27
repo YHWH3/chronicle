@@ -49,7 +49,7 @@ fun JournalScreen(viewModel: JournalViewModel) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            start = 28.dp, end = 28.dp, top = 20.dp, bottom = 48.dp,
+            start = 28.dp, end = 28.dp, top = 20.dp, bottom = com.chronicle.app.ui.design.LocalBottomBarPadding.current,
         ),
     ) {
         item {
