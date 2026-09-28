@@ -184,6 +184,7 @@ fun LargeActionCircle(
     size: androidx.compose.ui.unit.Dp = 88.dp,
     frosted: Boolean = false,
     breath: Float = 0f,
+    enabled: Boolean = true,
 ) {
     val p = Chron.palette
     val interaction = remember { MutableInteractionSource() }
@@ -192,6 +193,7 @@ fun LargeActionCircle(
         contentAlignment = Alignment.Center,
         modifier = modifier
             .size(size)
+            .alpha(if (enabled) 1f else 0.45f)
             .pressScale(interaction)
             .clip(CircleShape)
             .drawBehind {
@@ -205,6 +207,7 @@ fun LargeActionCircle(
                 interactionSource = interaction,
                 indication = ripple(color = p.textPrimary),
                 role = Role.Button,
+                enabled = enabled,
                 onClick = onClick,
             )
             .semantics { this.contentDescription = contentDescription },

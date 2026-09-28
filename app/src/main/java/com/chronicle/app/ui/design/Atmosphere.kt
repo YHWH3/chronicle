@@ -170,21 +170,25 @@ fun scene(key: SceneKey, dark: Boolean): Scene = when (key) {
         ),
         ridgeBaseline = 0.72f, fog = Color(0xFFF1E2D6),
     )
+    // Quiet dusty-sage neutral — low saturation.
     SceneKey.INTENTIONS -> if (dark) Scene(
-        skyTop = Color(0xFF232124), skyBottom = Color(0xFF352E2E),
-        glow = Color(0xFFDCA98C).copy(alpha = 0.22f),
-        glowCenter = Offset(0.50f, 0.24f), glowRadius = 0.55f,
-        ridgeColors = listOf(Color(0xFF2C282B), Color(0xFF201D20)),
-        ridgeBaseline = 0.74f, fog = Color(0xFF352E2E),
-    ) else Scene(
-        skyTop = Color(0xFFEFE7E1), skyBottom = Color(0xFFEFE0DA),
-        glow = Color(0xFFF4D8C4).copy(alpha = 0.65f),
-        glowCenter = Offset(0.50f, 0.24f), glowRadius = 0.55f,
+        skyTop = Color(0xFF20221F), skyBottom = Color(0xFF2A2C29),
+        glow = Color(0xFF99A288).copy(alpha = 0.18f),
+        glowCenter = Offset(0.50f, 0.22f), glowRadius = 0.55f,
         ridgeColors = listOf(
-            Color(0xFFD5C7BE).copy(alpha = 0.40f),
-            Color(0xFFC8B8AF).copy(alpha = 0.55f),
+            Color(0xFF262824).copy(alpha = 0.70f),
+            Color(0xFF1A1C19).copy(alpha = 0.85f),
         ),
-        ridgeBaseline = 0.74f, fog = Color(0xFFEFE0DA),
+        ridgeBaseline = 0.76f, fog = Color(0xFF2A2C29),
+    ) else Scene(
+        skyTop = Color(0xFFE9EBE3), skyBottom = Color(0xFFECE8E1),
+        glow = Color(0xFFDEE3D2).copy(alpha = 0.70f),
+        glowCenter = Offset(0.50f, 0.22f), glowRadius = 0.55f,
+        ridgeColors = listOf(
+            Color(0xFFC7CBBE).copy(alpha = 0.40f),
+            Color(0xFFB6BBAD).copy(alpha = 0.55f),
+        ),
+        ridgeBaseline = 0.76f, fog = Color(0xFFECE8E1),
     )
     SceneKey.SETTINGS -> if (dark) Scene(
         skyTop = Color(0xFF1F1F24), skyBottom = Color(0xFF2A2A31),

@@ -34,10 +34,67 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.chronicle.app.ui.theme.ChronicleMotion
 
 private val PillShape = RoundedCornerShape(percent = Radius.pill)
+
+/**
+ * A round outline check — fills with the accent on a spring when done.
+ * 48dp touch target, Checkbox semantics.
+ */
+@Composable
+fun CircleCheck(
+    checked: Boolean,
+    contentDescription: String?,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val p = Chron.palette
+    val fill by androidx.compose.animation.animateColorAsState(
+        targetValue = if (checked) p.accent else Color.Transparent,
+        animationSpec = androidx.compose.animation.core.spring(
+            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
+            stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+        ),
+        label = "checkFill",
+    )
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .size(48.dp)
+            .toggleable(
+                value = checked,
+                role = Role.Checkbox,
+                onValueChange = { onToggle() },
+            ),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(24.dp)
+                .clip(CircleShape)
+                .background(fill)
+                .border(
+                    width = 1.5.dp,
+                    color = if (checked) p.accent else p.textTertiary.copy(alpha = 0.55f),
+                    shape = CircleShape,
+                )
+                .semantics { if (contentDescription != null) this.contentDescription = contentDescription },
+        ) {
+            if (checked) {
+                Icon(
+                    painter = painterResource(com.chronicle.app.R.drawable.ic_check),
+                    contentDescription = null,
+                    tint = if (p.isDark) OnGradient else Color.White,
+                    modifier = Modifier.size(13.dp),
+                )
+            }
+        }
+    }
+}
 
 /** Speak/Write-style segmented control — the selected capsule slides. */
 @Composable

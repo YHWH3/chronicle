@@ -6,13 +6,17 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.Dp
@@ -29,6 +33,9 @@ fun FrostedTextField(
     secret: Boolean = false,
     minHeight: Dp = 52.dp,
     focusRequester: FocusRequester? = null,
+    onFocusChange: ((Boolean) -> Unit)? = null,
+    imeAction: ImeAction = ImeAction.Default,
+    onImeAction: (() -> Unit)? = null,
 ) {
     val p = Chron.palette
     GlassSurface(
@@ -44,10 +51,23 @@ fun FrostedTextField(
             cursorBrush = SolidColor(p.accent),
             singleLine = singleLine,
             visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
+            keyboardOptions = KeyboardOptions(imeAction = imeAction),
+            keyboardActions = KeyboardActions(
+                onDone = { onImeAction?.invoke() },
+                onSend = { onImeAction?.invoke() },
+                onGo = { onImeAction?.invoke() },
+            ),
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = minHeight)
                 .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                .then(
+                    if (onFocusChange != null) {
+                        Modifier.onFocusChanged { onFocusChange(it.isFocused) }
+                    } else {
+                        Modifier
+                    },
+                )
                 .padding(horizontal = 18.dp, vertical = 14.dp),
             decorationBox = { inner ->
                 Box {
