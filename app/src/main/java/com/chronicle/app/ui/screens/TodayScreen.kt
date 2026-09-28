@@ -52,7 +52,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -109,6 +111,8 @@ fun TodayScreen(
     val state by viewModel.state.collectAsState()
     val haptics = LocalHapticFeedback.current
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
     val p = Chron.palette
     val type = Chron.type
 
@@ -172,10 +176,10 @@ fun TodayScreen(
         label = "cy",
     ) {
         when (it) {
-            Phase.IDLE -> 0.55f
+            Phase.IDLE -> 0.52f
             Phase.RECORDING -> 0.78f
             Phase.PROCESSING -> 0.24f
-            Phase.KEPT -> 0.26f
+            Phase.KEPT -> 0.24f
         }
     }
     // Write-mode idle has no capture circle.
@@ -290,7 +294,7 @@ fun TodayScreen(
                         alpha = idleA * pillsImeA
                         translationY = (1f - idleA) * (-24f)
                     }
-                    .offset { IntOffset(0, (H * 0.30f).toInt()) },
+                    .offset { IntOffset(0, (H * 0.285f).toInt()) },
                 contentAlignment = Alignment.Center,
             ) {
                 SegmentedPills(
@@ -318,7 +322,7 @@ fun TodayScreen(
                     .offset {
                         IntOffset(
                             (W * 0.5f - sizePx / 2f).toInt(),
-                            (H * (if (phase == Phase.IDLE && compactHeight) 0.50f else cy)
+                            (H * (if (phase == Phase.IDLE && compactHeight) 0.46f else cy)
                                 - sizePx / 2f).toInt(),
                         )
                     }
@@ -357,7 +361,7 @@ fun TodayScreen(
                     .fillMaxWidth()
                     .alpha(idleA * writeIdleA)
                     .offset {
-                        val circleCy = if (compactHeight) 0.50f else cy
+                        val circleCy = if (compactHeight) 0.46f else cy
                         IntOffset(0, (H * circleCy + with(density) { idleSize.toPx() } / 2 + 24).toInt())
                     },
                 contentAlignment = Alignment.Center,
@@ -392,7 +396,12 @@ fun TodayScreen(
                     Spacer(Modifier.weight(1f))
                     PrimaryPill(
                         label = "Keep",
-                        onClick = { viewModel.saveDraft() },
+                        onClick = {
+                            // Dismiss the IME before the processing morph starts.
+                            focusManager.clearFocus()
+                            keyboard?.hide()
+                            viewModel.saveDraft()
+                        },
                         enabled = state.draftText.isNotBlank(),
                         loading = state.saving,
                     )
@@ -422,7 +431,8 @@ fun TodayScreen(
         if (recA > 0.01f) {
             RecordingHud(state = state, alpha = recA, topOffset = H * 0.14f)
 
-            // Bottom control row: Discard left, stop circle (the morph) center.
+            // Bottom control row: Discard left, stop circle (the morph)
+            // centered with "Tap to keep" beneath it, equal spacer right.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -433,7 +443,9 @@ fun TodayScreen(
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(start = Spacing.x8),
+                    modifier = Modifier
+                        .padding(start = Spacing.x8)
+                        .width(56.dp),
                 ) {
                     FrostedIconButton(
                         icon = R.drawable.ic_close,
@@ -444,15 +456,15 @@ fun TodayScreen(
                     Text("Discard", style = type.meta, color = p.textSecondary)
                 }
                 Spacer(Modifier.weight(1f))
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(end = Spacing.x8),
-                ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     // Spacer matching the morphing circle's footprint.
                     Spacer(Modifier.size(88.dp))
                     Spacer(Modifier.height(6.dp))
                     Text("Tap to keep", style = type.meta, color = p.textSecondary)
                 }
+                Spacer(Modifier.weight(1f))
+                // Same footprint as the Discard column so the centre stays centred.
+                Spacer(Modifier.padding(end = Spacing.x8).width(56.dp))
             }
         }
 
@@ -511,7 +523,7 @@ fun TodayScreen(
                 KeptBody(
                     kept = kept,
                     alpha = keptA,
-                    topOffset = (H * 0.42f),
+                    topOffset = (H * 0.37f),
                     buttonsOffset = bottomPad + 20.dp,
                     onViewEntry = {
                         viewModel.dismissKept()

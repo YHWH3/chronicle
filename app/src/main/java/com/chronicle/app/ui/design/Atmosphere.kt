@@ -26,6 +26,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.translate
@@ -326,10 +327,12 @@ private fun DrawScope.drawAtmosphere(
         center = Offset(glowCenter.x * w, glowCenter.y * h),
     )
 
-    // Ridges: back → front, each a low-frequency sine silhouette.
+    // Ridges: back → front, each a low-frequency sine silhouette softened
+    // into mist — low contrast against the sky, feathered top edge, and a
+    // gradient that dissolves into fog toward the base.
     val n = ridges.count { it.alpha > 0f }
-    ridges.forEachIndexed { i, color ->
-        if (color.alpha <= 0f) return@forEachIndexed
+    ridges.forEachIndexed { i, raw ->
+        if (raw.alpha <= 0f) return@forEachIndexed
         // Center the band on `baseline`; front ridges sit lower and move more.
         val base = h * (baseline - (n - 1) * 0.022f + i * 0.045f)
         val a1 = h * (0.026f + 0.009f * i)
@@ -350,25 +353,40 @@ private fun DrawScope.drawAtmosphere(
         }
         path.lineTo(w, h)
         path.close()
-        clipPath(path) {
-            drawRect(
-                brush = Brush.verticalGradient(
-                    colors = listOf(color, fog),
-                    startY = base - a1 - a2,
-                    endY = h,
-                ),
-            )
+
+        // Pull the ridge toward the sky so it reads as mist, not a cutout.
+        val color = lerp(raw, skyBottom, 0.30f)
+        val top = base - a1 - a2 - h * 0.015f
+        // Feather the top edge: faint passes shifted upward, outermost first.
+        val passes = listOf(h * 0.011f to 0.18f, h * 0.005f to 0.40f, 0f to 1f)
+        for ((lift, alphaScale) in passes) {
+            translate(top = -lift) {
+                clipPath(path) {
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            colorStops = arrayOf(
+                                0.00f to color.copy(alpha = color.alpha * alphaScale),
+                                0.40f to lerp(color, fog, 0.55f)
+                                    .copy(alpha = color.alpha * alphaScale),
+                                1.00f to fog.copy(alpha = fog.alpha * alphaScale),
+                            ),
+                            startY = top,
+                            endY = h,
+                        ),
+                    )
+                }
+            }
         }
     }
 
-    // Fog band lifting off the ridge floor.
+    // Fog band lifting off the ridge floor — ridges dissolve into it.
     drawRect(
         brush = Brush.verticalGradient(
             colorStops = arrayOf(
                 0.0f to fog.copy(alpha = 0f),
-                1.0f to fog.copy(alpha = 0.55f),
+                1.0f to fog.copy(alpha = 0.6f),
             ),
-            startY = h * 0.62f,
+            startY = h * 0.58f,
             endY = h,
         ),
     )

@@ -24,10 +24,16 @@ import com.chronicle.app.mind.ModelKind
 import com.chronicle.app.mind.ModelState
 import com.chronicle.app.mind.ModelStore
 import com.chronicle.app.reminders.ReminderScheduler
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
+import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -38,6 +44,10 @@ fun Long.asLocalDateTime(): LocalDateTime =
 
 fun LocalDateTime.toEpochMs(): Long =
     atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+
+/** Millis from [now] until the next local midnight. */
+internal fun millisUntilNextMidnight(now: LocalDateTime): Long =
+    Duration.between(now, now.toLocalDate().plusDays(1).atStartOfDay()).toMillis()
 
 // ————— Today —————
 
@@ -83,6 +93,7 @@ data class TodayUiState(
     val mindLabel: String = "",
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class TodayViewModel(
     private val context: Context,
     private val journalRepository: JournalRepository,
@@ -98,13 +109,25 @@ class TodayViewModel(
     private val _state = MutableStateFlow(TodayUiState(speechAvailable = transcriber.available))
     val state: StateFlow<TodayUiState> = _state
 
+    /** Emits today's date, sleeps until the next local midnight, repeats —
+     *  so "Earlier today" rolls over instead of freezing on the open date. */
+    private fun currentDateFlow(): Flow<LocalDate> = flow {
+        while (true) {
+            val now = LocalDateTime.now()
+            emit(now.toLocalDate())
+            delay(millisUntilNextMidnight(now) + 50L)
+        }
+    }
+
     init {
         viewModelScope.launch {
-            journalRepository.observeDay(LocalDate.now()).collect { list ->
-                _state.value = _state.value.copy(
-                    todaysEntries = list.reversed().map { it.toDomain() },
-                )
-            }
+            currentDateFlow()
+                .flatMapLatest { journalRepository.observeDay(it) }
+                .collect { list ->
+                    _state.value = _state.value.copy(
+                        todaysEntries = list.reversed().map { it.toDomain() },
+                    )
+                }
         }
         viewModelScope.launch {
             combine(

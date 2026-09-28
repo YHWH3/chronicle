@@ -108,20 +108,28 @@ fun Orb(size: Dp, modifier: Modifier = Modifier) {
         ),
         label = "orbHue",
     )
+    // The canvas is larger than the orb body so the halo can fade to
+    // transparent inside its own bounds — same-size bounds clipped the
+    // glow into a visible square.
     Canvas(
         modifier
-            .size(size)
+            .size(size * 1.55f)
             .graphicsLayer { scaleX = breath; scaleY = breath },
     ) {
-        val r = this.size.minDimension / 2f
+        val r = this.size.minDimension / 2f / 1.55f
         val c = center
-        // Outer halo.
+        // Outer halo — fully faded before the canvas edge.
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(GradientStart.copy(alpha = 0.30f), Color.Transparent),
-                center = c, radius = r * 1.35f,
+                colorStops = arrayOf(
+                    0f to GradientStart.copy(alpha = 0.28f),
+                    0.55f to GradientStart.copy(alpha = 0.12f),
+                    0.82f to GradientStart.copy(alpha = 0f),
+                    1f to Color.Transparent,
+                ),
+                center = c, radius = r * 1.5f,
             ),
-            radius = r * 1.35f, center = c,
+            radius = r * 1.5f, center = c,
         )
         // Body: lavender → peach, center wandering slowly.
         val gcx = c.x + r * 0.18f * cos(angle)
