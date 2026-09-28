@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -26,6 +27,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.NavType
@@ -37,7 +39,15 @@ import com.chronicle.app.ui.design.LocalBottomBarPadding
 import com.chronicle.app.ui.design.NavItem
 import com.chronicle.app.ui.design.SceneEffect
 import com.chronicle.app.ui.design.SceneKey
+import com.chronicle.app.mind.ModelKind
 import com.chronicle.app.ui.screens.JournalScreen
+import com.chronicle.app.ui.screens.SettingsAboutPage
+import com.chronicle.app.ui.screens.SettingsAppearancePage
+import com.chronicle.app.ui.screens.SettingsEarPage
+import com.chronicle.app.ui.screens.SettingsMindPage
+import com.chronicle.app.ui.screens.SettingsModelPage
+import com.chronicle.app.ui.screens.SettingsNudgePage
+import com.chronicle.app.ui.screens.SettingsPrivacyPage
 import com.chronicle.app.ui.screens.SettingsScreen
 import com.chronicle.app.ui.screens.StoryChapterScreen
 import com.chronicle.app.ui.screens.StoryScreen
@@ -55,9 +65,18 @@ object Routes {
     const val JOURNAL = "journal"
     const val STORY = "story"
     const val TASKS = "tasks"
+    const val SETTINGS_GRAPH = "settings_root"
     const val SETTINGS = "settings"
+    const val SETTINGS_APPEARANCE = "settings/appearance"
+    const val SETTINGS_NUDGE = "settings/nudge"
+    const val SETTINGS_EAR = "settings/ear"
+    const val SETTINGS_MIND = "settings/mind"
+    const val SETTINGS_MODEL = "settings/model/{kind}"
+    const val SETTINGS_PRIVACY = "settings/privacy"
+    const val SETTINGS_ABOUT = "settings/about"
     const val CHAPTER = "chapter/{number}"
     fun chapter(number: Int) = "chapter/$number"
+    fun settingsModel(kind: com.chronicle.app.mind.ModelKind) = "settings/model/${kind.name}"
 }
 
 private val DESTINATIONS = listOf(
@@ -74,8 +93,7 @@ private fun sceneForRoute(route: String?): SceneKey = when (route) {
     Routes.JOURNAL -> SceneKey.JOURNAL
     Routes.STORY, Routes.CHAPTER -> SceneKey.STORY
     Routes.TASKS -> SceneKey.INTENTIONS
-    Routes.SETTINGS -> SceneKey.SETTINGS
-    else -> SceneKey.TODAY_IDLE
+    else -> if (route?.startsWith("settings") == true) SceneKey.SETTINGS else SceneKey.TODAY_IDLE
 }
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
@@ -142,7 +160,7 @@ fun ChronicleRoot(container: AppContainer) {
                         })
                         TodayScreen(
                             vm,
-                            onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                            onOpenSettings = { navController.navigate(Routes.SETTINGS_GRAPH) },
                             onOpenJournal = { navController.navigateToTab(Routes.JOURNAL) },
                         )
                     }
@@ -167,15 +185,63 @@ fun ChronicleRoot(container: AppContainer) {
                         })
                         TasksScreen(vm)
                     }
-                    composable(Routes.SETTINGS) {
-                        val vm: SettingsViewModel = viewModel(factory = vmFactory {
-                            SettingsViewModel(
-                                container.appContextRef(),
-                                container.prefsRepository,
-                                container.modelStore,
+                    // One VM for the whole settings graph — scoped to the
+                    // graph's back-stack entry, so sub-pages share it.
+                    navigation(
+                        startDestination = Routes.SETTINGS,
+                        route = Routes.SETTINGS_GRAPH,
+                    ) {
+                        composable(Routes.SETTINGS) { entry ->
+                            val vm = settingsViewModel(navController, entry, container)
+                            SettingsScreen(
+                                vm,
+                                onBack = { navController.popBackStack() },
+                                onOpen = { navController.navigate(it) },
                             )
-                        })
-                        SettingsScreen(vm, onBack = { navController.popBackStack() })
+                        }
+                        composable(Routes.SETTINGS_APPEARANCE) { entry ->
+                            val vm = settingsViewModel(navController, entry, container)
+                            SettingsAppearancePage(vm, onBack = { navController.popBackStack() })
+                        }
+                        composable(Routes.SETTINGS_NUDGE) { entry ->
+                            val vm = settingsViewModel(navController, entry, container)
+                            SettingsNudgePage(vm, onBack = { navController.popBackStack() })
+                        }
+                        composable(Routes.SETTINGS_EAR) { entry ->
+                            val vm = settingsViewModel(navController, entry, container)
+                            SettingsEarPage(
+                                vm,
+                                onBack = { navController.popBackStack() },
+                                onOpen = { navController.navigate(it) },
+                            )
+                        }
+                        composable(Routes.SETTINGS_MIND) { entry ->
+                            val vm = settingsViewModel(navController, entry, container)
+                            SettingsMindPage(
+                                vm,
+                                onBack = { navController.popBackStack() },
+                                onOpen = { navController.navigate(it) },
+                            )
+                        }
+                        composable(
+                            Routes.SETTINGS_MODEL,
+                            arguments = listOf(
+                                navArgument("kind") { type = NavType.StringType },
+                            ),
+                        ) { entry ->
+                            val kind = entry.arguments?.getString("kind")
+                                ?.let { runCatching { ModelKind.valueOf(it) }.getOrNull() }
+                                ?: ModelKind.PARAKEET_STT
+                            val vm = settingsViewModel(navController, entry, container)
+                            SettingsModelPage(vm, kind, onBack = { navController.popBackStack() })
+                        }
+                        composable(Routes.SETTINGS_PRIVACY) { entry ->
+                            val vm = settingsViewModel(navController, entry, container)
+                            SettingsPrivacyPage(vm, onBack = { navController.popBackStack() })
+                        }
+                        composable(Routes.SETTINGS_ABOUT) {
+                            SettingsAboutPage(onBack = { navController.popBackStack() })
+                        }
                     }
                     composable(
                         Routes.CHAPTER,
@@ -204,6 +270,33 @@ fun ChronicleRoot(container: AppContainer) {
             )
         }
     }
+}
+
+/**
+ * The single SettingsViewModel shared by the settings nav graph — scoped to
+ * the graph's back-stack entry so every sub-page sees the same instance.
+ */
+@Composable
+private fun settingsViewModel(
+    navController: NavHostController,
+    entry: androidx.navigation.NavBackStackEntry,
+    container: AppContainer,
+): SettingsViewModel {
+    val graphEntry = remember(entry) {
+        navController.getBackStackEntry(Routes.SETTINGS_GRAPH)
+    }
+    return viewModel(
+        viewModelStoreOwner = graphEntry,
+        factory = vmFactory {
+            SettingsViewModel(
+                container.appContextRef(),
+                container.prefsRepository,
+                container.modelStore,
+                container.mindRepository,
+                container.transcriber,
+            )
+        },
+    )
 }
 
 private fun NavHostController.navigateToTab(route: String) {

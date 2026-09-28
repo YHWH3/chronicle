@@ -168,6 +168,7 @@ fun ChoicePill(
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    textStyle: androidx.compose.ui.text.TextStyle = Chron.type.controlSmall,
 ) {
     val p = Chron.palette
     GlassSurface(
@@ -185,14 +186,14 @@ fun ChoicePill(
     ) {
         Text(
             text = label,
-            style = Chron.type.controlSmall,
+            style = textStyle,
             color = if (selected) p.textPrimary else p.textSecondary,
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
         )
     }
 }
 
-/** Settings-style row card: leading radio, title/subtitle, optional trailing. */
+/** Settings-style row card: leading radio, title/subtitle/meta, optional trailing. */
 @Composable
 fun OptionCard(
     title: String,
@@ -200,6 +201,7 @@ fun OptionCard(
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    meta: String? = null,
     trailing: (@Composable () -> Unit)? = null,
 ) {
     val p = Chron.palette
@@ -238,6 +240,10 @@ fun OptionCard(
                 if (subtitle != null) {
                     Spacer(Modifier.height(2.dp))
                     Text(subtitle, style = Chron.type.meta, color = p.textSecondary)
+                }
+                if (meta != null) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(meta, style = Chron.type.meta, color = p.textTertiary)
                 }
             }
             if (trailing != null) {

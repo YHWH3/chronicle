@@ -238,6 +238,61 @@ fun scene(key: SceneKey, dark: Boolean): Scene = when (key) {
     )
 }
 
+/**
+ * A miniature of the real scene painter — the same sky, glow, ridges and
+ * fog, drawn inside [modifier]. Used by the Appearance preview tiles.
+ * Not animated; the tile is a still.
+ */
+@Composable
+fun ScenePreview(key: SceneKey, dark: Boolean, modifier: Modifier = Modifier) {
+    val s = scene(key, dark)
+    Canvas(modifier) {
+        drawAtmosphere(
+            skyTop = s.skyTop, skyBottom = s.skyBottom,
+            glow = s.glow, glowCenter = s.glowCenter, glowRadius = s.glowRadius,
+            ridges = s.ridgeColors, baseline = s.ridgeBaseline,
+            fog = s.fog, dark = dark,
+        )
+    }
+}
+
+/**
+ * The same miniature split diagonally between two themes — [first] paints
+ * the lower-left half, [second] the upper-right. For "Follow the day".
+ */
+@Composable
+fun ScenePreviewSplit(
+    key: SceneKey,
+    first: Boolean,
+    second: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val a = scene(key, first)
+    val b = scene(key, second)
+    Canvas(modifier) {
+        drawAtmosphere(
+            skyTop = a.skyTop, skyBottom = a.skyBottom,
+            glow = a.glow, glowCenter = a.glowCenter, glowRadius = a.glowRadius,
+            ridges = a.ridgeColors, baseline = a.ridgeBaseline,
+            fog = a.fog, dark = first,
+        )
+        val half = Path().apply {
+            moveTo(size.width, 0f)
+            lineTo(size.width, size.height)
+            lineTo(0f, size.height)
+            close()
+        }
+        clipPath(half) {
+            drawAtmosphere(
+                skyTop = b.skyTop, skyBottom = b.skyBottom,
+                glow = b.glow, glowCenter = b.glowCenter, glowRadius = b.glowRadius,
+                ridges = b.ridgeColors, baseline = b.ridgeBaseline,
+                fog = b.fog, dark = second,
+            )
+        }
+    }
+}
+
 /** Holds the scene key screens drive via [SceneEffect]. */
 val LocalAtmosphere = staticCompositionLocalOf<MutableState<SceneKey>> {
     error("LocalAtmosphere used outside AtmosphereHost")

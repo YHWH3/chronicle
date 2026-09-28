@@ -19,6 +19,8 @@ import com.chronicle.app.media.SpeechTranscriber
 import com.chronicle.app.media.TakeRecorder
 import com.chronicle.app.media.VoiceRecorder
 import com.chronicle.app.media.WavRecorder
+import com.chronicle.app.mind.ChatMind
+import com.chronicle.app.mind.DeterministicMind
 import com.chronicle.app.mind.MindRepository
 import com.chronicle.app.mind.ModelKind
 import com.chronicle.app.mind.ModelState
@@ -542,20 +544,33 @@ data class SettingsUiState(
     val parakeetUrl: String = "",
     val llmUrl: String = "",
     val models: Map<ModelKind, ModelState> = emptyMap(),
+    // Derived display state — mirrors MindRepository.resolve() exactly.
+    val effectiveMindLabel: String = "",
+    /** True when the resolved engine is a network backend (entry text leaves). */
+    val mindLeavesPhone: Boolean = false,
+    /** True when a non-quiet selection fell back to the Quiet parser. */
+    val mindFellBack: Boolean = false,
+    /** False when Android reports no on-device speech recognition. */
+    val systemSttAvailable: Boolean = true,
 )
 
 class SettingsViewModel(
     private val context: Context,
     private val prefsRepository: PrefsRepository,
     private val modelStore: ModelStore,
+    private val mindRepository: MindRepository,
+    private val transcriber: SpeechTranscriber,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(SettingsUiState())
+    private val _state = MutableStateFlow(
+        SettingsUiState(systemSttAvailable = transcriber.available),
+    )
     val state: StateFlow<SettingsUiState> = _state
 
     init {
         viewModelScope.launch {
             prefsRepository.prefs.collect { p ->
+                val engine = mindRepository.resolve(p)
                 _state.value = _state.value.copy(
                     themeMode = p.themeMode,
                     dailyNudgeEnabled = p.dailyNudgeEnabled,
@@ -569,6 +584,10 @@ class SettingsViewModel(
                     sttEngine = p.sttEngine,
                     parakeetUrl = p.parakeetUrl,
                     llmUrl = p.llmUrl,
+                    effectiveMindLabel = engine.label,
+                    mindLeavesPhone = engine is ChatMind,
+                    mindFellBack = engine === DeterministicMind &&
+                        p.mindBackend != MindBackend.QUIET_PARSER,
                 )
             }
         }
