@@ -1,121 +1,232 @@
 package com.chronicle.app.ui.screens
 
+import android.content.Context
 import android.content.Intent
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.chronicle.app.R
+import com.chronicle.app.domain.Story
 import com.chronicle.app.domain.StoryChapter
-import com.chronicle.app.ui.components.ChronicleIcon
-import com.chronicle.app.ui.components.Hairline
-import com.chronicle.app.ui.components.Masthead
-import com.chronicle.app.ui.components.MetaText
-import com.chronicle.app.ui.theme.ChronicleExtras
+import com.chronicle.app.domain.StoryComposer
+import com.chronicle.app.ui.design.Chron
+import com.chronicle.app.ui.design.FrostedIconButton
+import com.chronicle.app.ui.design.GlassSurface
+import com.chronicle.app.ui.design.Hairline
+import com.chronicle.app.ui.design.LocalBottomBarPadding
+import com.chronicle.app.ui.design.Radius
+import com.chronicle.app.ui.design.Spacing
+import com.chronicle.app.ui.design.SurfaceLevel
 import com.chronicle.app.ui.theme.Fraunces
-import com.chronicle.app.ui.theme.SerifItalic
 import com.chronicle.app.ui.vm.StoryViewModel
+
+/** Shares the whole story as Markdown — one intent for overview and reading. */
+private fun shareStory(context: Context, story: Story?) {
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, story?.toMarkdown().orEmpty())
+        putExtra(Intent.EXTRA_TITLE, "The Story So Far")
+    }
+    context.startActivity(Intent.createChooser(intent, "Share the story"))
+}
 
 @Composable
 fun StoryScreen(viewModel: StoryViewModel, onOpenChapter: (Int) -> Unit) {
     val state by viewModel.state.collectAsState()
     val story = state.story
+    val context = LocalContext.current
+    val p = Chron.palette
+    val type = Chron.type
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            start = 28.dp, end = 28.dp, top = 20.dp, bottom = com.chronicle.app.ui.design.LocalBottomBarPadding.current,
+        modifier = Modifier.fillMaxSize().statusBarsPadding(),
+        contentPadding = PaddingValues(
+            start = Spacing.screenMargin, end = Spacing.screenMargin,
+            top = Spacing.x4, bottom = LocalBottomBarPadding.current,
         ),
     ) {
         item {
-            Masthead(kicker = "Being written", title = "The Story")
-            Spacer(Modifier.height(10.dp))
-            if (story != null && story.totalEntries > 0) {
-                MetaText(
-                    text = "${story.totalDays} days · ${story.totalEntries} entries · " +
-                        "${story.totalWords} words · about a ${story.readingMinutes}-minute read",
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = "Story",
+                        style = type.title,
+                        color = p.textPrimary,
+                        modifier = Modifier.semantics { heading() },
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "Your weeks, written back to you.",
+                        style = type.serifItalic,
+                        color = p.textSecondary,
+                    )
+                }
+                FrostedIconButton(
+                    icon = R.drawable.ic_share,
+                    contentDescription = "Share story",
+                    onClick = { shareStory(context, story) },
                 )
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(Spacing.x6))
         }
 
-        if (story == null || story.chapters.isEmpty()) {
+        val chapters = story?.chapters.orEmpty()
+        if (chapters.isEmpty()) {
             item {
-                Spacer(Modifier.height(80.dp))
+                Spacer(Modifier.height(96.dp))
                 Text(
-                    "The story hasn't begun.",
-                    style = MaterialTheme.typography.headlineSmall,
+                    text = "Your first chapter is still being lived.",
+                    style = type.headline,
+                    color = p.textPrimary,
                 )
-                Spacer(Modifier.height(8.dp))
-                MetaText("Each day you keep becomes part of it")
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = "Chapters are composed each week from the entries you keep.",
+                    style = type.body,
+                    color = p.textSecondary,
+                )
             }
         } else {
-            items(story.chapters.asReversed(), key = { it.number }) { chapter ->
-                Column(Modifier.animateItem()) {
-                    ChapterCard(chapter = chapter, onClick = { onOpenChapter(chapter.number) })
-                    Spacer(Modifier.height(16.dp))
+            // The newest chapter is the hero; the rest float as an index.
+            val current = chapters.last()
+            val previous = chapters.dropLast(1).asReversed()
+
+            item(key = "hero-${current.number}") {
+                HeroChapterCard(
+                    chapter = current,
+                    onClick = { onOpenChapter(current.number) },
+                    modifier = Modifier.animateItem(),
+                )
+            }
+
+            if (previous.isNotEmpty()) {
+                item {
+                    Spacer(Modifier.height(Spacing.x10))
+                }
+                items(previous, key = { "prev-${it.number}" }) { chapter ->
+                    Column(Modifier.animateItem()) {
+                        ChapterIndexRow(
+                            chapter = chapter,
+                            onClick = { onOpenChapter(chapter.number) },
+                        )
+                        Hairline(modifier = Modifier.padding(vertical = 2.dp))
+                    }
                 }
             }
         }
     }
 }
 
+/** The current chapter — an elevated frosted card with a reading excerpt. */
 @Composable
-private fun ChapterCard(chapter: StoryChapter, onClick: () -> Unit) {
-    Column(
+private fun HeroChapterCard(
+    chapter: StoryChapter,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val p = Chron.palette
+    val type = Chron.type
+    GlassSurface(
+        level = SurfaceLevel.Elevated,
+        shape = RoundedCornerShape(Radius.lg),
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(Spacing.x6)) {
+            Text(
+                text = chapter.title,
+                style = type.meta,
+                color = p.accent,
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text = chapter.subtitle,
+                style = type.headline,
+                color = p.textPrimary,
+            )
+            if (chapter.paragraphs.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = chapter.paragraphs.first(),
+                    style = type.serifItalic,
+                    color = p.textSecondary,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+            Text(
+                text = "${chapter.entryCount} entries · ${chapter.wordCount} words",
+                style = type.numeric,
+                color = p.textTertiary,
+            )
+        }
+    }
+}
+
+/** A previous chapter — a numeral and title floating on the background. */
+@Composable
+private fun ChapterIndexRow(chapter: StoryChapter, onClick: () -> Unit) {
+    val p = Chron.palette
+    val type = Chron.type
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, ChronicleExtras.hairline, MaterialTheme.shapes.small)
-            .clickable(onClick = onClick)
-            .padding(20.dp),
+            .clickable(onClick = onClick, role = Role.Button)
+            .padding(vertical = Spacing.x4),
     ) {
-        Row {
-            MetaText(
-                text = chapter.title + if (chapter.ongoing) " · unfinished" else "",
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Spacer(Modifier.weight(1f))
-            ChronicleIcon(
-                R.drawable.ic_chevron_right, null,
-                tint = ChronicleExtras.faint,
-            )
-        }
-        Spacer(Modifier.height(10.dp))
-        Text(chapter.subtitle, style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(12.dp))
-        if (chapter.paragraphs.isNotEmpty()) {
+        Text(
+            text = StoryComposer.roman(chapter.number),
+            style = type.title,
+            color = p.textTertiary,
+            modifier = Modifier.width(56.dp),
+        )
+        Column(Modifier.weight(1f)) {
             Text(
-                text = chapter.paragraphs.first(),
-                style = SerifItalic,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 3,
+                text = chapter.title,
+                style = type.section,
+                color = p.textPrimary,
             )
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = chapter.subtitle,
+                style = type.bodySmall,
+                color = p.textSecondary,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "${chapter.entryCount} entries · ${chapter.wordCount} words",
+                style = type.numeric,
+                color = p.textTertiary,
+            )
         }
-        Hairline()
-        Spacer(Modifier.height(10.dp))
-        MetaText("${chapter.entryCount} entries · ${chapter.wordCount} words")
     }
 }
 
@@ -129,68 +240,75 @@ fun StoryChapterScreen(
     val state by viewModel.state.collectAsState()
     val chapter = state.story?.chapters?.firstOrNull { it.number == chapterNumber }
     val context = LocalContext.current
+    val p = Chron.palette
+    val type = Chron.type
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 28.dp),
+            .padding(horizontal = Spacing.screenMargin),
     ) {
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(Spacing.x4))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            ChronicleIcon(
-                R.drawable.ic_back, "Back",
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier
-                    .minimumInteractiveComponentSize()
-                    .clickable(onClick = onBack),
+            FrostedIconButton(
+                icon = R.drawable.ic_back,
+                contentDescription = "Back",
+                onClick = onBack,
             )
             Spacer(Modifier.weight(1f))
             if (chapter != null) {
-                ChronicleIcon(
-                    R.drawable.ic_share, "Share",
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .clickable {
-                        val text = state.story?.toMarkdown().orEmpty()
-                        val intent = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, text)
-                            putExtra(Intent.EXTRA_TITLE, "The Story So Far")
-                        }
-                        context.startActivity(Intent.createChooser(intent, "Share the story"))
-                    },
+                FrostedIconButton(
+                    icon = R.drawable.ic_share,
+                    contentDescription = "Share story",
+                    onClick = { shareStory(context, state.story) },
                 )
             }
         }
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(Spacing.x8))
 
         if (chapter == null) {
-            MetaText("This chapter has slipped away.")
+            Text(
+                text = "This chapter has slipped away.",
+                style = type.body,
+                color = p.textSecondary,
+            )
         } else {
-            MetaText(text = chapter.title, color = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.height(8.dp))
-            Text(chapter.subtitle, style = MaterialTheme.typography.displayMedium)
-            Spacer(Modifier.height(6.dp))
-            MetaText("${chapter.entryCount} entries · ${chapter.wordCount} words")
-            Spacer(Modifier.height(28.dp))
+            Text(
+                text = chapter.title,
+                style = type.meta,
+                color = p.accent,
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text = chapter.subtitle,
+                style = type.display,
+                color = p.textPrimary,
+                modifier = Modifier.semantics { heading() },
+            )
+            Spacer(Modifier.height(Spacing.x10))
 
-            for (paragraph in chapter.paragraphs) {
+            chapter.paragraphs.forEachIndexed { i, paragraph ->
                 Text(
                     text = paragraph,
-                    style = MaterialTheme.typography.bodyLarge.copy(
+                    style = type.body.copy(
                         fontFamily = Fraunces,
-                        fontSize = 18.sp,
-                        lineHeight = 30.sp,
+                        fontSize = if (i == 0) 20.sp else 18.sp,
+                        lineHeight = if (i == 0) 32.sp else 29.sp,
                     ),
+                    color = p.textPrimary,
                 )
                 Spacer(Modifier.height(22.dp))
             }
 
-            Spacer(Modifier.height(24.dp))
-            MetaText("· · ·", color = ChronicleExtras.faint)
-            Spacer(Modifier.height(48.dp))
+            Spacer(Modifier.height(Spacing.x4))
+            Text(
+                text = "${chapter.entryCount} entries · ${chapter.wordCount} words",
+                style = type.numeric,
+                color = p.textTertiary,
+            )
+            Spacer(Modifier.height(64.dp))
         }
     }
 }

@@ -150,21 +150,25 @@ fun scene(key: SceneKey, dark: Boolean): Scene = when (key) {
         ),
         ridgeBaseline = 0.76f, fog = Color(0xFFECE7E7),
     )
+    // Warm dusk/peach — the editorial scene.
     SceneKey.STORY -> if (dark) Scene(
-        skyTop = Color(0xFF22202C), skyBottom = Color(0xFF38303F),
-        glow = Color(0xFFAE9CD8).copy(alpha = 0.25f),
-        glowCenter = Offset(0.60f, 0.22f), glowRadius = 0.55f,
-        ridgeColors = listOf(Color(0xFF2B2736), Color(0xFF1E1B27)),
-        ridgeBaseline = 0.70f, fog = Color(0xFF38303F),
-    ) else Scene(
-        skyTop = Color(0xFFE2DCE6), skyBottom = Color(0xFFEDE0DA),
-        glow = Color(0xFFEBD0C8).copy(alpha = 0.70f),
-        glowCenter = Offset(0.60f, 0.22f), glowRadius = 0.55f,
+        skyTop = Color(0xFF241F27), skyBottom = Color(0xFF3A2C31),
+        glow = Color(0xFFD89A80).copy(alpha = 0.30f),
+        glowCenter = Offset(0.62f, 0.22f), glowRadius = 0.58f,
         ridgeColors = listOf(
-            Color(0xFFBFAEC0).copy(alpha = 0.55f),
-            Color(0xFFAF9EB2).copy(alpha = 0.70f),
+            Color(0xFF2E2630).copy(alpha = 0.70f),
+            Color(0xFF1F1A23).copy(alpha = 0.85f),
         ),
-        ridgeBaseline = 0.70f, fog = Color(0xFFEDE0DA),
+        ridgeBaseline = 0.72f, fog = Color(0xFF3A2C31),
+    ) else Scene(
+        skyTop = Color(0xFFEBE0DB), skyBottom = Color(0xFFF1E2D6),
+        glow = Color(0xFFF3C4A8).copy(alpha = 0.70f),
+        glowCenter = Offset(0.62f, 0.22f), glowRadius = 0.58f,
+        ridgeColors = listOf(
+            Color(0xFFC8B4AE).copy(alpha = 0.45f),
+            Color(0xFFB6A2A0).copy(alpha = 0.60f),
+        ),
+        ridgeBaseline = 0.72f, fog = Color(0xFFF1E2D6),
     )
     SceneKey.INTENTIONS -> if (dark) Scene(
         skyTop = Color(0xFF232124), skyBottom = Color(0xFF352E2E),
