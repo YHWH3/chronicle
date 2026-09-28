@@ -26,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -190,7 +191,7 @@ private fun HeroChapterCard(
     }
 }
 
-/** A previous chapter — a numeral and title floating on the background. */
+/** A previous chapter — a numeral and the week, floating on the background. */
 @Composable
 private fun ChapterIndexRow(chapter: StoryChapter, onClick: () -> Unit) {
     val p = Chron.palette
@@ -199,6 +200,9 @@ private fun ChapterIndexRow(chapter: StoryChapter, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
+            .semantics(mergeDescendants = true) {
+                contentDescription = "${chapter.title}, ${chapter.subtitle}"
+            }
             .clickable(onClick = onClick, role = Role.Button)
             .padding(vertical = Spacing.x4),
     ) {
@@ -210,15 +214,9 @@ private fun ChapterIndexRow(chapter: StoryChapter, onClick: () -> Unit) {
         )
         Column(Modifier.weight(1f)) {
             Text(
-                text = chapter.title,
+                text = chapter.subtitle,
                 style = type.section,
                 color = p.textPrimary,
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = chapter.subtitle,
-                style = type.bodySmall,
-                color = p.textSecondary,
             )
             Spacer(Modifier.height(6.dp))
             Text(
