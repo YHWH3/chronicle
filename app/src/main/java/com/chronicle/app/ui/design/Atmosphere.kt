@@ -130,21 +130,25 @@ fun scene(key: SceneKey, dark: Boolean): Scene = when (key) {
         ),
         ridgeBaseline = 0.72f, fog = Color(0xFFEAD9D6),
     )
+    // Cooler dusty-blue mist — the archive feel.
     SceneKey.JOURNAL -> if (dark) Scene(
-        skyTop = Color(0xFF1E1D22), skyBottom = Color(0xFF28262C),
-        glow = Color(0xFFBBA98F).copy(alpha = 0.18f),
-        glowCenter = Offset(0.50f, 0.18f), glowRadius = 0.60f,
+        skyTop = Color(0xFF1B1D25), skyBottom = Color(0xFF25262F),
+        glow = Color(0xFF8B9BC0).copy(alpha = 0.20f),
+        glowCenter = Offset(0.35f, 0.20f), glowRadius = 0.60f,
         ridgeColors = listOf(
-            Color(0xFF242228).copy(alpha = 0.60f),
-            Color(0xFF1A191F).copy(alpha = 0.80f),
+            Color(0xFF24262F).copy(alpha = 0.70f),
+            Color(0xFF181920).copy(alpha = 0.85f),
         ),
-        ridgeBaseline = 0.78f, fog = Color(0xFF28262C),
+        ridgeBaseline = 0.76f, fog = Color(0xFF25262F),
     ) else Scene(
-        skyTop = Color(0xFFF3EFEA), skyBottom = Color(0xFFECE6E3),
-        glow = Color(0xFFF5DECB).copy(alpha = 0.55f),
-        glowCenter = Offset(0.50f, 0.18f), glowRadius = 0.60f,
-        ridgeColors = listOf(Color(0xFFD9D2CC).copy(alpha = 0.35f)),
-        ridgeBaseline = 0.78f, fog = Color(0xFFECE6E3),
+        skyTop = Color(0xFFE5E8EF), skyBottom = Color(0xFFECE7E7),
+        glow = Color(0xFFD6DCEC).copy(alpha = 0.75f),
+        glowCenter = Offset(0.35f, 0.20f), glowRadius = 0.60f,
+        ridgeColors = listOf(
+            Color(0xFFC4C9D4).copy(alpha = 0.40f),
+            Color(0xFFB2B8C6).copy(alpha = 0.55f),
+        ),
+        ridgeBaseline = 0.76f, fog = Color(0xFFECE7E7),
     )
     SceneKey.STORY -> if (dark) Scene(
         skyTop = Color(0xFF22202C), skyBottom = Color(0xFF38303F),

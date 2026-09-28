@@ -2,6 +2,7 @@ package com.chronicle.app.ui.design
 
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -155,6 +156,43 @@ fun Orb(size: Dp, modifier: Modifier = Modifier) {
             radius = r - 1.dp.toPx(), center = c,
             style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx()),
         )
+    }
+}
+
+/**
+ * An even row of vertical ticks that fill with the accent as [progress]
+ * (0..1) advances — the voice-note playback meter.
+ */
+@Composable
+fun TickTrack(
+    progress: Float,
+    modifier: Modifier = Modifier,
+    tickCount: Int = 30,
+) {
+    val p = Chron.palette
+    val eased by animateFloatAsState(
+        targetValue = progress.coerceIn(0f, 1f),
+        animationSpec = tween(ChronicleMotion.MICRO, easing = ChronicleMotion.StandardEasing),
+        label = "tickProgress",
+    )
+    Canvas(modifier.height(22.dp)) {
+        val gap = 4.dp.toPx()
+        val w = ((size.width - gap * (tickCount - 1)) / tickCount).coerceAtLeast(1.5.dp.toPx())
+        val played = eased * tickCount
+        for (i in 0 until tickCount) {
+            val fill = (played - i).coerceIn(0f, 1f)
+            val color = lerpColor(
+                p.textTertiary.copy(alpha = 0.30f),
+                p.accent,
+                fill,
+            )
+            drawRoundRect(
+                color = color,
+                topLeft = Offset(i * (w + gap), size.height * 0.22f),
+                size = Size(w, size.height * 0.56f),
+                cornerRadius = CornerRadius(w / 2f),
+            )
+        }
     }
 }
 

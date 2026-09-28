@@ -150,7 +150,10 @@ fun ChronicleRoot(container: AppContainer) {
                         val vm: JournalViewModel = viewModel(factory = vmFactory {
                             JournalViewModel(container.journalRepository, container.player)
                         })
-                        JournalScreen(vm)
+                        JournalScreen(
+                            vm,
+                            onOpenToday = { navController.navigateToTab(Routes.TODAY) },
+                        )
                     }
                     composable(Routes.STORY) {
                         val vm: StoryViewModel = viewModel(factory = vmFactory {

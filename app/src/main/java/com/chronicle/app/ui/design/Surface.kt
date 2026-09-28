@@ -7,6 +7,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
@@ -93,4 +95,13 @@ fun GlassSurface(
     }
 
     Box(modifier = m, contentAlignment = contentAlignment, content = content)
+}
+
+/** Whisper-thin separator between rows inside a shared surface. */
+@Composable
+fun Hairline(
+    modifier: Modifier = Modifier,
+    color: Color = Chron.palette.surfaceFrostedStroke.copy(alpha = 0.55f),
+) {
+    Box(modifier.fillMaxWidth().height(1.dp).drawBehind { drawRect(color) })
 }
