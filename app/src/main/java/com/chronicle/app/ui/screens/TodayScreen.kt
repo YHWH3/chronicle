@@ -238,7 +238,7 @@ fun TodayScreen(
             Spacer(Modifier.weight(1f))
             FrostedIconButton(
                 icon = R.drawable.ic_gear,
-                contentDescription = "Open details",
+                contentDescription = "Settings",
                 onClick = onOpenSettings,
             )
         }

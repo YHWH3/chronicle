@@ -12,8 +12,10 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -28,7 +30,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -77,6 +78,7 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TasksScreen(viewModel: TasksViewModel) {
     val state by viewModel.state.collectAsState()
@@ -180,14 +182,14 @@ fun TasksScreen(viewModel: TasksViewModel) {
                 exit = fadeOut(tween(ChronicleMotion.MICRO)) +
                     shrinkVertically(tween(ChronicleMotion.MICRO)),
             ) {
-                Row(
+                FlowRow(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
                         .padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    ReminderChoice.entries.forEachIndexed { i, choice ->
-                        if (i > 0) Spacer(Modifier.width(8.dp))
+                    ReminderChoice.entries.forEach { choice ->
                         ChoicePill(
                             label = choice.label,
                             selected = choice == state.draftReminder,
@@ -233,7 +235,6 @@ fun TasksScreen(viewModel: TasksViewModel) {
                             state.open.forEachIndexed { index, task ->
                                 SwipeToDeleteRow(
                                     onDelete = { viewModel.delete(task) },
-                                    foreground = p.surfaceFrosted,
                                 ) {
                                     IntentionRow(
                                         task = task,

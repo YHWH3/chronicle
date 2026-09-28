@@ -15,21 +15,31 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.chronicle.app.R
+import kotlin.math.abs
 
 /**
  * Swipe end-to-start to delete: slides [content] aside to reveal a
- * warning-coloured delete affordance. [foreground] paints the row so the
- * affordance only shows where the row has moved — pass the surface colour
- * when inside a card, Transparent when the row floats on the atmosphere.
+ * warning-coloured delete affordance. The affordance fades in with the
+ * row's displacement and is fully invisible at rest, so rows that float
+ * on the atmosphere or live inside a shared glass surface never leak it.
+ * While displaced, the row gets a near-opaque underlay so the affordance
+ * can't bleed through the glass — pass [foreground] only when a row
+ * needs a resting fill of its own.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,23 +51,26 @@ fun SwipeToDeleteRow(
 ) {
     val p = Chron.palette
     val state = rememberSwipeToDismissBoxState()
+    var widthPx by remember { mutableFloatStateOf(0f) }
+    // Offset in px: 0 at rest, grows as the row is dragged. progress is
+    // unsuitable — it reports 1f once settled.
+    val offset = runCatching { state.requireOffset() }.getOrDefault(0f)
+    val reveal =
+        if (widthPx > 0f) (abs(offset) / (widthPx * 0.25f)).coerceIn(0f, 1f) else 0f
+    // Near-opaque stand-in for the glass while the row is displaced.
+    val dragFill = p.surfaceFrosted.compositeOver(p.scrim.copy(alpha = 1f))
     LaunchedEffect(state.currentValue) {
         if (state.currentValue == SwipeToDismissBoxValue.EndToStart) onDelete()
     }
     SwipeToDismissBox(
         state = state,
-        modifier = modifier,
+        modifier = modifier.onSizeChanged { widthPx = it.width.toFloat() },
         enableDismissFromStartToEnd = false,
         backgroundContent = {
-            // Affordance fades in with swipe progress — invisible at rest,
-            // so transparent rows don't leak it through the mist.
-            val reveal = state.progress.coerceIn(0f, 1f)
             Box(
                 contentAlignment = Alignment.CenterEnd,
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(Radius.sm))
-                    .drawBehind { drawRect(p.surfaceFrosted) }
                     .alpha(reveal),
             ) {
                 Row(
@@ -84,7 +97,9 @@ fun SwipeToDeleteRow(
             Modifier
                 .fillMaxSize()
                 .clip(androidx.compose.foundation.shape.RoundedCornerShape(Radius.sm))
-                .drawBehind { drawRect(foreground) },
+                .drawBehind {
+                    drawRect(if (abs(offset) > 0.5f) dragFill else foreground)
+                },
         ) {
             content()
         }
