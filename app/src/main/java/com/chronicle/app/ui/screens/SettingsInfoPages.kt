@@ -78,7 +78,8 @@ private fun voiceLine(state: SettingsUiState): String {
                 "Audio never leaves."
         state.systemSttAvailable ->
             "Recorded on this phone and transcribed by Android's on-device recogniser. " +
-                "Audio never leaves."
+                "On-device recognition is requested — a strong preference, " +
+                "not an absolute guarantee."
         else ->
             "Recorded on this phone. No on-device recogniser is available, " +
                 "so notes are kept as audio until one is."
