@@ -267,9 +267,15 @@ private fun DownloadingBody(
     onCancel: () -> Unit,
 ) {
     // Rolling rate samples for the ETA — shown only once the estimate is stable.
+    // Progress emits per buffer read, so cap by time spacing, not count —
+    // 40 raw emissions can span <2.5s on a fast link and the ETA would
+    // never become visible.
     val samples = remember { mutableStateListOf<Pair<Long, Long>>() }
     LaunchedEffect(state.doneBytes, state.progress) {
-        samples += SystemClock.elapsedRealtime() to state.doneBytes
+        val now = SystemClock.elapsedRealtime()
+        if (samples.isEmpty() || now - samples.last().first >= 300) {
+            samples += now to state.doneBytes
+        }
         while (samples.size > 40) samples.removeAt(0)
     }
     val eta = remember(state.doneBytes, state.progress) {
