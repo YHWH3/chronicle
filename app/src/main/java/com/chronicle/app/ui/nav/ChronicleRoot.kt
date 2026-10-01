@@ -1,21 +1,38 @@
 package com.chronicle.app.ui.nav
 
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.dp
@@ -33,12 +50,19 @@ import androidx.navigation.navArgument
 import androidx.navigation.NavType
 import com.chronicle.app.AppContainer
 import com.chronicle.app.R
+import com.chronicle.app.core.UiMessage
+import com.chronicle.app.core.UiMessageBus
 import com.chronicle.app.ui.design.AtmosphereHost
+import com.chronicle.app.ui.design.Chron
 import com.chronicle.app.ui.design.FloatingNavBar
+import com.chronicle.app.ui.design.GlassSurface
 import com.chronicle.app.ui.design.LocalBottomBarPadding
 import com.chronicle.app.ui.design.NavItem
+import com.chronicle.app.ui.design.Radius
 import com.chronicle.app.ui.design.SceneEffect
 import com.chronicle.app.ui.design.SceneKey
+import com.chronicle.app.ui.design.Spacing
+import com.chronicle.app.ui.design.SurfaceLevel
 import com.chronicle.app.mind.ModelKind
 import com.chronicle.app.ui.screens.JournalScreen
 import com.chronicle.app.ui.screens.SettingsAboutPage
@@ -59,6 +83,9 @@ import com.chronicle.app.ui.vm.SettingsViewModel
 import com.chronicle.app.ui.vm.StoryViewModel
 import com.chronicle.app.ui.vm.TasksViewModel
 import com.chronicle.app.ui.vm.TodayViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 object Routes {
     const val TODAY = "today"
@@ -147,7 +174,6 @@ fun ChronicleRoot(container: AppContainer) {
                     composable(Routes.TODAY) {
                         val vm: TodayViewModel = viewModel(factory = vmFactory {
                             TodayViewModel(
-                                container.appContextRef(),
                                 container.journalRepository,
                                 container.taskRepository,
                                 container.prefsRepository,
@@ -156,6 +182,8 @@ fun ChronicleRoot(container: AppContainer) {
                                 container.transcriber,
                                 container.parakeetTranscriber,
                                 container.mindRepository,
+                                container.reminderGateway,
+                                container.uiMessages,
                             )
                         })
                         TodayScreen(
@@ -181,7 +209,11 @@ fun ChronicleRoot(container: AppContainer) {
                     }
                     composable(Routes.TASKS) {
                         val vm: TasksViewModel = viewModel(factory = vmFactory {
-                            TasksViewModel(container.appContextRef(), container.taskRepository)
+                            TasksViewModel(
+                                container.taskRepository,
+                                container.reminderGateway,
+                                container.uiMessages,
+                            )
                         })
                         TasksScreen(vm)
                     }
@@ -268,6 +300,101 @@ fun ChronicleRoot(container: AppContainer) {
                 },
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
+
+            UiMessageHost(container.uiMessages)
+        }
+    }
+}
+
+/**
+ * The single surface for one-shot [UiMessage]s — a frosted pill riding above
+ * the nav bar, warning-tinted, auto-dismissing. Repeated identical messages
+ * inside a short window collapse into one; a distinct message replaces the
+ * current one and restarts the countdown.
+ */
+@Composable
+private fun BoxScope.UiMessageHost(bus: UiMessageBus) {
+    val context = LocalContext.current
+    var current by remember { mutableStateOf<UiMessage?>(null) }
+    // Keep the last message so the exit fade doesn't render an empty pill.
+    var lastShown by remember { mutableStateOf<UiMessage?>(null) }
+    LaunchedEffect(bus) {
+        var lastText: String? = null
+        var lastAt = 0L
+        var dismiss: Job? = null
+        bus.messages.collect { msg ->
+            val now = System.currentTimeMillis()
+            if (msg.text == lastText && now - lastAt < 6_000) return@collect
+            lastText = msg.text
+            lastAt = now
+            dismiss?.cancel()
+            dismiss = launch {
+                current = msg
+                lastShown = msg
+                delay(4_200)
+                current = null
+            }
+        }
+    }
+    AnimatedVisibility(
+        visible = current != null,
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .padding(horizontal = Spacing.screenMargin)
+            .padding(bottom = LocalBottomBarPadding.current + 12.dp),
+        enter = fadeIn(tween(ChronicleMotion.MICRO)) +
+            slideInVertically(tween(ChronicleMotion.MICRO)) { it / 4 },
+        exit = fadeOut(tween(ChronicleMotion.MICRO)),
+    ) {
+        lastShown?.let { msg ->
+            GlassSurface(
+                level = SurfaceLevel.Frosted,
+                shape = RoundedCornerShape(percent = Radius.pill),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(
+                        start = 18.dp,
+                        end = if (msg.actionLabel != null) 8.dp else 18.dp,
+                        top = 11.dp,
+                        bottom = 11.dp,
+                    ),
+                ) {
+                    Text(
+                        text = msg.text,
+                        style = Chron.type.bodySmall,
+                        color = Chron.palette.warning,
+                    )
+                    msg.actionLabel?.let { label ->
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            text = label,
+                            style = Chron.type.controlSmall,
+                            color = Chron.palette.accent,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(Radius.xs))
+                                .clickable {
+                                    val action = msg.onAction
+                                    when {
+                                        action != null -> action()
+                                        msg.opensAppSettings -> context.startActivity(
+                                            Intent(
+                                                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                                Uri.fromParts(
+                                                    "package",
+                                                    context.packageName,
+                                                    null,
+                                                ),
+                                            ),
+                                        )
+                                    }
+                                    current = null
+                                }
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -289,11 +416,11 @@ private fun settingsViewModel(
         viewModelStoreOwner = graphEntry,
         factory = vmFactory {
             SettingsViewModel(
-                container.appContextRef(),
                 container.prefsRepository,
                 container.modelStore,
                 container.mindRepository,
                 container.transcriber,
+                container.reminderGateway,
             )
         },
     )

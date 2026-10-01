@@ -12,6 +12,14 @@ import java.io.RandomAccessFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/** File-first speech-to-text — transcribes a finished take rather than streaming. */
+interface WavTranscriber {
+    /** True when the engine can actually run (model installed, on disk). */
+    val available: Boolean
+    /** Transcribes a 16 kHz mono PCM .wav take; throws on failure. */
+    suspend fun transcribe(wavFile: File): String
+}
+
 /**
  * Fully-offline speech-to-text through sherpa-onnx running NVIDIA's
  * Parakeet TDT 0.6B (int8). The model pack is fetched once from Settings
@@ -23,13 +31,13 @@ import kotlinx.coroutines.withContext
 class ParakeetTranscriber(
     private val context: Context,
     private val modelStore: ModelStore,
-) {
+) : WavTranscriber {
 
     @Volatile
     private var recognizer: OfflineRecognizer? = null
 
     /** True when the pack is installed — the engine only works with the model on disk. */
-    val available: Boolean
+    override val available: Boolean
         get() = modelDir() != null
 
     private fun modelDir(): File? = modelStore.installedDir(ModelKind.PARAKEET_STT)
@@ -60,7 +68,7 @@ class ParakeetTranscriber(
     }
 
     /** Transcribes a 16 kHz mono PCM .wav take. */
-    suspend fun transcribe(wavFile: File): String = withContext(Dispatchers.Default) {
+    override suspend fun transcribe(wavFile: File): String = withContext(Dispatchers.Default) {
         val samples = readWavPcm16(wavFile)
         check(samples.isNotEmpty()) { "empty audio" }
         val stream = engine().createStream()

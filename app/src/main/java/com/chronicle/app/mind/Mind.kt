@@ -14,6 +14,19 @@ data class MindResult(
     val reflection: String? = null,
 )
 
+/**
+ * The outcome of one extraction pass — which engine was configured, which
+ * engine actually answered, and why a fallback happened (null when the
+ * configured engine ran cleanly). UI must show [actualLabel], never assume
+ * the configured engine produced the result.
+ */
+data class MindExecutionResult(
+    val result: MindResult,
+    val configuredLabel: String,
+    val actualLabel: String,
+    val fallbackReason: String?,
+)
+
 /** Something that reads captured words and decides what they mean. */
 interface MindEngine {
     /** Human-facing name shown in Settings and confirmations. */

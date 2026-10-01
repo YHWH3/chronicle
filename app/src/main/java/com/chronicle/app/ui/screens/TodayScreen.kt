@@ -903,11 +903,13 @@ private fun androidx.compose.foundation.layout.BoxScope.KeptBody(
             }
         }
         Spacer(Modifier.height(6.dp))
-        Text(
-            text = "Read by ${kept.engineLabel}",
-            style = type.meta,
-            color = p.textTertiary,
-        )
+        if (kept.engineLabel.isNotBlank()) {
+            Text(
+                text = "Read by ${kept.engineLabel}",
+                style = type.meta,
+                color = p.textTertiary,
+            )
+        }
     }
 
     Row(

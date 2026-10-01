@@ -1,11 +1,16 @@
 package com.chronicle.app.ui.vm
 
-import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.chronicle.app.core.OperationResult
+import com.chronicle.app.core.UiMessage
+import com.chronicle.app.core.UiMessageBus
+import com.chronicle.app.core.safeSuspend
+import com.chronicle.app.core.sanitizeReason
 import com.chronicle.app.data.JournalRepository
 import com.chronicle.app.data.MindBackend
 import com.chronicle.app.data.PrefsRepository
+import com.chronicle.app.data.PrefsSource
 import com.chronicle.app.data.SttEngine
 import com.chronicle.app.data.TaskRepository
 import com.chronicle.app.data.ThemeMode
@@ -14,18 +19,17 @@ import com.chronicle.app.domain.Story
 import com.chronicle.app.domain.StoryComposer
 import com.chronicle.app.domain.toDomain
 import com.chronicle.app.media.EntryPlayer
-import com.chronicle.app.media.ParakeetTranscriber
-import com.chronicle.app.media.SpeechTranscriber
+import com.chronicle.app.media.LiveTranscriber
 import com.chronicle.app.media.TakeRecorder
-import com.chronicle.app.media.VoiceRecorder
-import com.chronicle.app.media.WavRecorder
+import com.chronicle.app.media.WavTranscriber
 import com.chronicle.app.mind.ChatMind
 import com.chronicle.app.mind.DeterministicMind
-import com.chronicle.app.mind.MindRepository
+import com.chronicle.app.mind.MindSource
 import com.chronicle.app.mind.ModelKind
 import com.chronicle.app.mind.ModelState
 import com.chronicle.app.mind.ModelStore
-import com.chronicle.app.reminders.ReminderScheduler
+import com.chronicle.app.reminders.ReminderGateway
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -97,15 +101,16 @@ data class TodayUiState(
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TodayViewModel(
-    private val context: Context,
     private val journalRepository: JournalRepository,
     private val taskRepository: TaskRepository,
-    private val prefsRepository: PrefsRepository,
-    private val voiceRecorder: VoiceRecorder,
-    private val wavRecorder: WavRecorder,
-    private val transcriber: SpeechTranscriber,
-    private val parakeetTranscriber: ParakeetTranscriber,
-    private val mindRepository: MindRepository,
+    private val prefsRepository: PrefsSource,
+    private val voiceRecorder: TakeRecorder,
+    private val wavRecorder: TakeRecorder,
+    private val transcriber: LiveTranscriber,
+    private val parakeetTranscriber: WavTranscriber,
+    private val mindRepository: MindSource,
+    private val reminders: ReminderGateway,
+    private val uiMessages: UiMessageBus,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(TodayUiState(speechAvailable = transcriber.available))
@@ -226,7 +231,13 @@ class TodayViewModel(
             // Waits briefly for the final recognition results before snapshotting.
             val transcript = if (parakeetTake) {
                 take?.first?.let { file ->
-                    runCatching { parakeetTranscriber.transcribe(file) }.getOrElse { "" }
+                    when (val r = safeSuspend { parakeetTranscriber.transcribe(file) }) {
+                        is OperationResult.Ok -> r.value
+                        is OperationResult.Failed -> {
+                            uiMessages.send(UiMessage.TranscriptionFailed)
+                            ""
+                        }
+                    }
                 }.orEmpty()
             } else {
                 transcriber.stop()
@@ -255,9 +266,18 @@ class TodayViewModel(
                     processing = false,
                     processingStep = null,
                     kept = kept,
-                    mindLabel = engine.label,
+                    mindLabel = kept.engineLabel,
                 )
+            } catch (ce: CancellationException) {
+                _state.value = _state.value.copy(
+                    liveTranscript = "",
+                    saving = false,
+                    processing = false,
+                    processingStep = null,
+                )
+                throw ce
             } catch (t: Throwable) {
+                uiMessages.send(UiMessage.SaveFailed)
                 _state.value = _state.value.copy(
                     liveTranscript = "",
                     saving = false,
@@ -290,9 +310,17 @@ class TodayViewModel(
                     processing = false,
                     processingStep = null,
                     kept = kept,
-                    mindLabel = engine.label,
+                    mindLabel = kept.engineLabel,
                 )
+            } catch (ce: CancellationException) {
+                _state.value = _state.value.copy(
+                    saving = false,
+                    processing = false,
+                    processingStep = null,
+                )
+                throw ce
             } catch (t: Throwable) {
+                uiMessages.send(UiMessage.SaveFailed)
                 _state.value = _state.value.copy(
                     saving = false,
                     processing = false,
@@ -308,33 +336,42 @@ class TodayViewModel(
         if (remaining > 0) kotlinx.coroutines.delay(remaining)
     }
 
-    private var engine: com.chronicle.app.mind.MindEngine = com.chronicle.app.mind.DeterministicMind
     /** Turns the captured words into reminders. Reminder logic unchanged. */
     private suspend fun materializeTasks(
         text: String,
         entryId: Long,
     ): KeptSummary {
         if (text.isBlank()) {
-            return KeptSummary(0, emptyList(), null, engine.label, entryId)
+            // An audio-only note — nothing was read, so no engine claims credit.
+            return KeptSummary(0, emptyList(), null, "", entryId)
         }
-        val (result, resolved) = mindRepository.extract(text, LocalDateTime.now())
-        engine = resolved
-        var reminders = 0
+        val exec = try {
+            mindRepository.extract(text, LocalDateTime.now())
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (t: Throwable) {
+            // Even the quiet parser failed — the entry is already persisted,
+            // so surface the failure but don't lose the save.
+            uiMessages.send(UiMessage.ExtractionFailed(sanitizeReason(t)))
+            null
+        }
+        val engineLabel = exec?.actualLabel ?: DeterministicMind.label
+        var scheduled = 0
         val intentions = mutableListOf<KeptIntention>()
-        for (task in result.tasks) {
+        for (task in exec?.result?.tasks.orEmpty()) {
             val remindMs = task.remindAt?.toEpochMs()
             val id = taskRepository.add(task.title, remindMs, entryId)
             if (remindMs != null && remindMs > System.currentTimeMillis()) {
-                ReminderScheduler.scheduleTask(context, id, task.title, remindMs)
-                reminders++
+                reminders.scheduleTask(id, task.title, remindMs)
+                scheduled++
             }
             intentions += KeptIntention(task.title, task.remindAt)
         }
         return KeptSummary(
-            reminders = reminders,
+            reminders = scheduled,
             intentions = intentions,
-            reflection = result.reflection,
-            engineLabel = engine.label,
+            reflection = exec?.result?.reflection,
+            engineLabel = engineLabel,
             entryId = entryId,
         )
     }
@@ -453,8 +490,9 @@ enum class ReminderChoice(val label: String) {
 }
 
 class TasksViewModel(
-    private val context: Context,
     private val taskRepository: TaskRepository,
+    private val reminders: ReminderGateway,
+    private val uiMessages: UiMessageBus,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(TasksUiState())
@@ -490,14 +528,21 @@ class TasksViewModel(
                 val remindMs = remindAt?.toEpochMs()
                 val id = taskRepository.add(title, remindMs)
                 if (remindMs != null) {
-                    ReminderScheduler.scheduleTask(context, id, title, remindMs)
+                    reminders.scheduleTask(id, title, remindMs)
+                    if (!reminders.notificationsEnabled()) {
+                        uiMessages.send(UiMessage.NotificationsOff)
+                    }
                 }
                 _state.value = _state.value.copy(
                     draft = "",
                     draftReminder = ReminderChoice.NONE,
                     adding = false,
                 )
+            } catch (ce: CancellationException) {
+                _state.value = _state.value.copy(adding = false)
+                throw ce
             } catch (t: Throwable) {
+                uiMessages.send(UiMessage.SaveFailed)
                 _state.value = _state.value.copy(adding = false)
             }
         }
@@ -508,12 +553,12 @@ class TasksViewModel(
             val nowDone = !task.done
             taskRepository.setDone(task, nowDone)
             if (nowDone) {
-                ReminderScheduler.cancelTask(context, task.id)
-                com.chronicle.app.reminders.Notifier.cancel(context, task.id)
+                reminders.cancelTask(task.id)
+                reminders.cancelNotification(task.id)
             } else {
                 task.remindAt?.let {
                     if (it > System.currentTimeMillis()) {
-                        ReminderScheduler.scheduleTask(context, task.id, task.title, it)
+                        reminders.scheduleTask(task.id, task.title, it)
                     }
                 }
             }
@@ -522,7 +567,8 @@ class TasksViewModel(
 
     fun delete(task: TaskEntity) {
         viewModelScope.launch {
-            ReminderScheduler.cancelTask(context, task.id)
+            reminders.cancelTask(task.id)
+            reminders.cancelNotification(task.id)
             taskRepository.delete(task.id)
         }
     }
@@ -555,11 +601,11 @@ data class SettingsUiState(
 )
 
 class SettingsViewModel(
-    private val context: Context,
     private val prefsRepository: PrefsRepository,
     private val modelStore: ModelStore,
-    private val mindRepository: MindRepository,
-    private val transcriber: SpeechTranscriber,
+    private val mindRepository: MindSource,
+    private val transcriber: LiveTranscriber,
+    private val reminders: ReminderGateway,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(
@@ -606,8 +652,8 @@ class SettingsViewModel(
         viewModelScope.launch {
             prefsRepository.setDailyNudge(enabled)
             val minutes = state.value.dailyNudgeMinutes
-            if (enabled) ReminderScheduler.scheduleDailyNudge(context, minutes)
-            else ReminderScheduler.cancelDailyNudge(context)
+            if (enabled) reminders.scheduleDailyNudge(minutes)
+            else reminders.cancelDailyNudge()
         }
     }
 
@@ -615,7 +661,7 @@ class SettingsViewModel(
         viewModelScope.launch {
             prefsRepository.setDailyNudgeMinutes(minutes)
             if (state.value.dailyNudgeEnabled) {
-                ReminderScheduler.scheduleDailyNudge(context, minutes)
+                reminders.scheduleDailyNudge(minutes)
             }
         }
     }

@@ -57,9 +57,14 @@ data class ChroniclePrefs(
     }
 }
 
-class PrefsRepository(private val context: Context) {
+/** Read-side of preferences — the surface ViewModels need to observe settings. */
+interface PrefsSource {
+    val prefs: Flow<ChroniclePrefs>
+}
 
-    val prefs: Flow<ChroniclePrefs> = context.dataStore.data.map { p ->
+class PrefsRepository(private val context: Context) : PrefsSource {
+
+    override val prefs: Flow<ChroniclePrefs> = context.dataStore.data.map { p ->
         ChroniclePrefs(
             themeMode = p[KEY_THEME]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() }
                 ?: ThemeMode.SYSTEM,

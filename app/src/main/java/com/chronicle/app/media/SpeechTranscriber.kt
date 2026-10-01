@@ -11,37 +11,51 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
+/** Live speech-to-text while a take is being recorded. */
+interface LiveTranscriber {
+    val available: Boolean
+    val partial: StateFlow<String>
+    val committed: StateFlow<List<String>>
+    /** Everything recognized so far — committed segments plus the live partial. */
+    val transcript: String
+    fun start()
+    /** Graceful stop — waits briefly for the final results, then destroys. */
+    suspend fun stop()
+    /** Immediate teardown for cancel paths — drops the tail of the take. */
+    fun destroyNow()
+}
+
 /**
  * Live speech-to-text using Android's SpeechRecognizer — on-device
  * recognition only, so speech never leaves the device. When on-device
  * recognition is unavailable, [available] is false and the app falls
  * back to audio-only capture.
  */
-class SpeechTranscriber(private val context: Context) {
+class SpeechTranscriber(private val context: Context) : LiveTranscriber {
 
     private var recognizer: SpeechRecognizer? = null
 
     private val _partial = MutableStateFlow("")
-    val partial: StateFlow<String> = _partial
+    override val partial: StateFlow<String> = _partial
 
     private val _committed = MutableStateFlow<List<String>>(emptyList())
-    val committed: StateFlow<List<String>> = _committed
+    override val committed: StateFlow<List<String>> = _committed
 
-    val transcript: String
+    override val transcript: String
         get() = (_committed.value + _partial.value)
             .filter { it.isNotBlank() }
             .joinToString(" ")
             .trim()
 
     /** True only when on-device recognition exists — voice never leaves the device. */
-    val available: Boolean
+    override val available: Boolean
         get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             SpeechRecognizer.isRecognitionAvailable(context) &&
             SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
 
     private var finishing = false
 
-    fun start() {
+    override fun start() {
         if (!available) return
         stopInternal()
         finishing = false
@@ -115,7 +129,7 @@ class SpeechTranscriber(private val context: Context) {
      * Stops listening, gives the service a bounded window to emit the final
      * onResults (so the tail of the take is transcribed), then destroys.
      */
-    suspend fun stop() {
+    override suspend fun stop() {
         val r = recognizer ?: return
         finishing = true
         r.stopListening()
@@ -125,7 +139,7 @@ class SpeechTranscriber(private val context: Context) {
     }
 
     /** Immediate teardown for cancel paths — drops the tail of the take. */
-    fun destroyNow() {
+    override fun destroyNow() {
         finishing = true
         stopInternal()
     }
