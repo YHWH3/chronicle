@@ -50,6 +50,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -115,6 +116,9 @@ fun TodayScreen(
     val keyboard = LocalSoftwareKeyboardController.current
     val p = Chron.palette
     val type = Chron.type
+    // Screen-height check needed before BoxWithConstraints — the cy morph
+    // below reads it while the layout itself can't be consulted yet.
+    val compactScreen = LocalConfiguration.current.screenHeightDp < 700
 
     val phase = when {
         state.recording == RecordingState.RECORDING -> Phase.RECORDING
@@ -177,7 +181,9 @@ fun TodayScreen(
     ) {
         when (it) {
             Phase.IDLE -> 0.52f
-            Phase.RECORDING -> 0.78f
+            // On short screens 0.78 drops the stop circle onto the
+            // "Tap to keep" caption — ride a little higher.
+            Phase.RECORDING -> if (compactScreen) 0.72f else 0.78f
             Phase.PROCESSING -> 0.24f
             Phase.KEPT -> 0.24f
         }
@@ -243,6 +249,14 @@ fun TodayScreen(
             )
         }
 
+        // Fade while the IME is up — the pills and greeting clear the field.
+        val imeVisible = WindowInsets.isImeVisible
+        val pillsImeA by animateFloatAsState(
+            targetValue = if (imeVisible) 0f else 1f,
+            animationSpec = tween(ChronicleMotion.EXIT),
+            label = "pillsIme",
+        )
+
         // ————— Greeting (fades + soft-blurs out once capture begins) —————
         if (idleA > 0.01f) {
             Column(
@@ -251,7 +265,7 @@ fun TodayScreen(
                     .offset { IntOffset(0, (H * 0.08f).toInt()) }
                     .padding(horizontal = Spacing.screenMargin)
                     .graphicsLayer {
-                        alpha = idleA
+                        alpha = idleA * pillsImeA
                         translationY = (1f - idleA) * (-36f)
                     },
             ) {
@@ -278,13 +292,6 @@ fun TodayScreen(
         }
 
         // ————— Speak/Write pills —————
-        // Fade while the IME is up so they never sit on top of the field.
-        val imeVisible = WindowInsets.isImeVisible
-        val pillsImeA by animateFloatAsState(
-            targetValue = if (imeVisible) 0f else 1f,
-            animationSpec = tween(ChronicleMotion.EXIT),
-            label = "pillsIme",
-        )
         if (idleA > 0.01f) {
             Box(
                 Modifier
@@ -355,7 +362,10 @@ fun TodayScreen(
         }
 
         // ————— Idle: caption under the circle —————
-        if (idleA > 0.01f && state.mode == CaptureMode.SPEAK) {
+        // On short screens the earlier-card climbs into the caption's slot —
+        // drop the hint once there's something on it.
+        val captionCollides = compactHeight && state.todaysEntries.isNotEmpty()
+        if (idleA > 0.01f && state.mode == CaptureMode.SPEAK && !captionCollides) {
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -382,7 +392,9 @@ fun TodayScreen(
                     .align(Alignment.BottomCenter)
                     .imePadding()
                     .padding(horizontal = Spacing.screenMargin)
-                    .padding(bottom = bottomPad + 8.dp)
+                    // With the IME up the nav bar is gone — ride just above
+                    // the keyboard instead of keeping the nav-bar clearance.
+                    .padding(bottom = if (imeVisible) 12.dp else bottomPad + 8.dp)
                     .alpha(idleA),
             ) {
                 FrostedTextField(
@@ -520,11 +532,18 @@ fun TodayScreen(
         if (keptA > 0.01f) {
             val kept = state.kept
             if (kept != null) {
+                // Compact screens: start a touch higher and bound the column
+                // above the pills so long kept-summaries scroll instead of
+                // colliding with the buttons.
+                val keptTop = H * (if (compactHeight) 0.33f else 0.37f)
+                val buttonsOffset = bottomPad + 20.dp
                 KeptBody(
                     kept = kept,
                     alpha = keptA,
-                    topOffset = (H * 0.37f),
-                    buttonsOffset = bottomPad + 20.dp,
+                    topOffset = keptTop,
+                    maxHeight = (with(density) { (H - keptTop).toDp() } - buttonsOffset - 72.dp)
+                        .coerceAtLeast(64.dp),
+                    buttonsOffset = buttonsOffset,
                     onViewEntry = {
                         viewModel.dismissKept()
                         onOpenJournal()
@@ -832,6 +851,7 @@ private fun androidx.compose.foundation.layout.BoxScope.KeptBody(
     kept: com.chronicle.app.ui.vm.KeptSummary,
     alpha: Float,
     topOffset: Float,
+    maxHeight: Dp,
     buttonsOffset: Dp,
     onViewEntry: () -> Unit,
     onAddAnother: () -> Unit,
@@ -844,7 +864,9 @@ private fun androidx.compose.foundation.layout.BoxScope.KeptBody(
             .fillMaxWidth()
             .padding(horizontal = Spacing.screenMargin)
             .graphicsLayer { this.alpha = alpha; translationY = (1f - alpha) * 48f }
-            .offset { IntOffset(0, topOffset.toInt()) },
+            .offset { IntOffset(0, topOffset.toInt()) }
+            .heightIn(max = maxHeight)
+            .verticalScroll(rememberScrollState()),
     ) {
         Text(
             text = "Kept.",
