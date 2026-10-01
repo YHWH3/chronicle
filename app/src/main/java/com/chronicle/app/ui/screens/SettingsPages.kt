@@ -431,6 +431,11 @@ fun SettingsMindPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (
                             )
                         }
                     }
+                    Spacer(Modifier.height(Spacing.x3))
+                    CustomModelField(
+                        current = state.openRouterModel,
+                        onCommit = { viewModel.setOpenRouter(state.openRouterKey, it) },
+                    )
                     if (state.openRouterKey.isBlank()) {
                         Spacer(Modifier.height(Spacing.x2))
                         Text(
@@ -455,10 +460,19 @@ fun SettingsMindPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (
                     FrostedTextField(
                         value = state.customBaseUrl,
                         onChange = {
-                            viewModel.setCustomEndpoint(it, state.customModel, state.customKey)
+                            viewModel.setCustomEndpoint(
+                                it.trim(), state.customModel, state.customKey,
+                            )
                         },
                         placeholder = "Base URL (https://api.openai.com/v1)",
                         singleLine = true,
+                    )
+                    Spacer(Modifier.height(Spacing.x2))
+                    Text(
+                        text = "HTTPS required — cleartext endpoints are refused.",
+                        style = Chron.type.meta,
+                        color = Chron.palette.textTertiary,
+                        modifier = Modifier.padding(start = 4.dp),
                     )
                     Spacer(Modifier.height(Spacing.x3))
                     FrostedTextField(
@@ -520,6 +534,45 @@ private fun MindCard(
             }
         }
     }
+}
+
+private val MODEL_ID_REGEX = Regex("[a-z0-9._/:-]+")
+
+/**
+ * Free-entry OpenRouter model id — the chips cover the free tier, this
+ * field reaches the rest of the catalogue. A draft is only committed once
+ * it looks like a slug (vendor/model[:tag]); while it's malformed the hint
+ * explains the shape rather than saving noise.
+ */
+@Composable
+private fun CustomModelField(current: String, onCommit: (String) -> Unit) {
+    var draft by remember { mutableStateOf("") }
+    val clean = draft.trim()
+    val valid = clean.matches(MODEL_ID_REGEX)
+    FrostedTextField(
+        value = draft,
+        onChange = {
+            draft = it
+            val candidate = it.trim()
+            if (candidate.matches(MODEL_ID_REGEX)) onCommit(candidate)
+        },
+        placeholder = "Custom model id (vendor/model:tag)",
+        singleLine = true,
+    )
+    Spacer(Modifier.height(Spacing.x2))
+    Text(
+        text = when {
+            draft.isNotBlank() && !valid ->
+                "A model id is lowercase letters, digits and - . _ / : — like vendor/model."
+            current.isNotBlank() && current !in OPENROUTER_FREE_MODELS ->
+                "Using $current."
+            else ->
+                "Or type any OpenRouter model id — the chips are only the free ones."
+        },
+        style = Chron.type.meta,
+        color = Chron.palette.textTertiary,
+        modifier = Modifier.padding(start = 4.dp),
+    )
 }
 
 /** A masked field with a Show/Hide toggle. */
