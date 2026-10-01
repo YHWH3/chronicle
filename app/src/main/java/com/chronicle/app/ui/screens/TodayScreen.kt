@@ -37,8 +37,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -56,6 +56,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -67,10 +68,15 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chronicle.app.R
 import com.chronicle.app.data.SttEngine
 import com.chronicle.app.domain.EntryKind
 import com.chronicle.app.domain.JournalEntry
+import com.chronicle.app.media.RecordingService
 import com.chronicle.app.ui.design.Chron
 import com.chronicle.app.ui.design.FrostedIconButton
 import com.chronicle.app.ui.design.FrostedTextField
@@ -95,6 +101,7 @@ import com.chronicle.app.ui.vm.ProcessingStep
 import com.chronicle.app.ui.vm.RecordingState
 import com.chronicle.app.ui.vm.TodayUiState
 import com.chronicle.app.ui.vm.TodayViewModel
+import kotlinx.coroutines.flow.StateFlow
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -109,7 +116,7 @@ fun TodayScreen(
     onOpenSettings: () -> Unit,
     onOpenJournal: () -> Unit,
 ) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     val haptics = LocalHapticFeedback.current
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
@@ -167,6 +174,35 @@ fun TodayScreen(
         if (phase == Phase.KEPT) {
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
         }
+    }
+
+    // ————— Recording keep-alive + lifecycle (BE-13, FE-02) —————
+    val recordingNow = state.recording == RecordingState.RECORDING
+    // The FGS holds process + mic while the app is backgrounded or locked —
+    // without it API 31+ delivers silence the moment the screen dims. The
+    // effect only mirrors recording state; the recorder itself is untouched.
+    LaunchedEffect(recordingNow) {
+        if (recordingNow) RecordingService.start(context) else RecordingService.stop(context)
+    }
+    // Keep the screen on for the take; the flag clears when the screen or
+    // the recording goes away.
+    val view = LocalView.current
+    DisposableEffect(recordingNow) {
+        if (recordingNow) view.keepScreenOn = true
+        onDispose { view.keepScreenOn = false }
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            // Deep sleep past midnight defers the day-flow timer — re-read
+            // the wall clock the moment we're visible again.
+            if (event == Lifecycle.Event.ON_START) viewModel.refreshDate()
+            // ON_STOP deliberately leaves the recorder alone: the FGS keeps
+            // capture alive, and lifecycle-bound collection already pauses
+            // the waveform reads under STARTED.
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     // ————— Phase-driven animation values —————
@@ -318,47 +354,21 @@ fun TodayScreen(
 
         // ————— The morphing capture element —————
         if (circleAlpha > 0.01f) {
-            val sizePx = with(density) { circleSize.toPx() }
-            val breathAmp = if (phase == Phase.RECORDING && state.amplitudes.isNotEmpty()) {
-                state.amplitudes.takeLast(12).average().toFloat()
-            } else {
-                0f
-            }
-            Box(
-                Modifier
-                    .offset {
-                        IntOffset(
-                            (W * 0.5f - sizePx / 2f).toInt(),
-                            (H * (if (phase == Phase.IDLE && compactHeight) 0.46f else cy)
-                                - sizePx / 2f).toInt(),
-                        )
-                    }
-                    .size(circleSize)
-                    .graphicsLayer {
-                        alpha = circleAlpha
-                        val s = 1f + breathAmp * 0.06f
-                        scaleX = s; scaleY = s
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                Crossfade(
-                    targetState = phase,
-                    animationSpec = tween(ChronicleMotion.MICRO),
-                    label = "captureGlyph",
-                ) { ph ->
-                    when (ph) {
-                        Phase.IDLE -> CaptureCircleIdle(
-                            onClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                micPermission.launch(Manifest.permission.RECORD_AUDIO)
-                            },
-                        )
-                        Phase.RECORDING -> CaptureCircleStop(onClick = { viewModel.toggleRecording() })
-                        Phase.PROCESSING -> Orb(size = circleSize)
-                        Phase.KEPT -> CaptureCircleKept()
-                    }
-                }
-            }
+            CaptureElement(
+                phase = phase,
+                circleAlpha = circleAlpha,
+                circleSize = circleSize,
+                widthPx = W,
+                heightPx = H,
+                cy = cy,
+                compactHeight = compactHeight,
+                amplitudes = viewModel.amplitudes,
+                onRecord = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    micPermission.launch(Manifest.permission.RECORD_AUDIO)
+                },
+                onStop = { viewModel.toggleRecording() },
+            )
         }
 
         // ————— Idle: caption under the circle —————
@@ -441,7 +451,13 @@ fun TodayScreen(
 
         // ————— Recording —————
         if (recA > 0.01f) {
-            RecordingHud(state = state, alpha = recA, topOffset = H * 0.14f)
+            RecordingHud(
+                state = state,
+                amplitudes = viewModel.amplitudes,
+                elapsedMs = viewModel.elapsedMs,
+                alpha = recA,
+                topOffset = H * 0.14f,
+            )
 
             // Bottom control row: Discard left, stop circle (the morph)
             // centered with "Tap to keep" beneath it, equal spacer right.
@@ -549,6 +565,7 @@ fun TodayScreen(
                         onOpenJournal()
                     },
                     onAddAnother = { viewModel.dismissKept() },
+                    onDismissSuggestion = { viewModel.dismissSuggestion(it) },
                 )
             }
         }
@@ -556,6 +573,63 @@ fun TodayScreen(
 }
 
 // ————— Morphing circle faces —————
+
+/**
+ * The capture circle that morphs between phases. The 90ms amplitude flow is
+ * collected HERE (FE-08) — the breathing scale recomposes this subtree only,
+ * not the screen.
+ */
+@Composable
+private fun CaptureElement(
+    phase: Phase,
+    circleAlpha: Float,
+    circleSize: Dp,
+    widthPx: Float,
+    heightPx: Float,
+    cy: Float,
+    compactHeight: Boolean,
+    amplitudes: StateFlow<List<Float>>,
+    onRecord: () -> Unit,
+    onStop: () -> Unit,
+) {
+    val amps by amplitudes.collectAsStateWithLifecycle()
+    val sizePx = with(LocalDensity.current) { circleSize.toPx() }
+    val breathAmp = if (phase == Phase.RECORDING && amps.isNotEmpty()) {
+        amps.takeLast(12).average().toFloat()
+    } else {
+        0f
+    }
+    Box(
+        Modifier
+            .offset {
+                IntOffset(
+                    (widthPx * 0.5f - sizePx / 2f).toInt(),
+                    (heightPx * (if (phase == Phase.IDLE && compactHeight) 0.46f else cy)
+                        - sizePx / 2f).toInt(),
+                )
+            }
+            .size(circleSize)
+            .graphicsLayer {
+                alpha = circleAlpha
+                val s = 1f + breathAmp * 0.06f
+                scaleX = s; scaleY = s
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Crossfade(
+            targetState = phase,
+            animationSpec = tween(ChronicleMotion.MICRO),
+            label = "captureGlyph",
+        ) { ph ->
+            when (ph) {
+                Phase.IDLE -> CaptureCircleIdle(onClick = onRecord)
+                Phase.RECORDING -> CaptureCircleStop(onClick = onStop)
+                Phase.PROCESSING -> Orb(size = circleSize)
+                Phase.KEPT -> CaptureCircleKept()
+            }
+        }
+    }
+}
 
 @Composable
 private fun CaptureCircleIdle(onClick: () -> Unit) {
@@ -674,11 +748,16 @@ private fun CaptureCircleKept() {
 @Composable
 private fun RecordingHud(
     state: TodayUiState,
+    amplitudes: StateFlow<List<Float>>,
+    elapsedMs: StateFlow<Long>,
     alpha: Float,
     topOffset: Float,
 ) {
     val p = Chron.palette
     val type = Chron.type
+    // FE-08 — the 90ms streams recompose this HUD only, not the screen.
+    val amps by amplitudes.collectAsStateWithLifecycle()
+    val elapsed by elapsedMs.collectAsStateWithLifecycle()
     val pulse by androidx.compose.animation.core.rememberInfiniteTransition(label = "recPulse")
         .animateFloat(
             initialValue = 0.45f, targetValue = 1f,
@@ -704,12 +783,12 @@ private fun RecordingHud(
         )
         Spacer(Modifier.height(10.dp))
         Text(
-            text = formatElapsed(state.elapsedMs),
+            text = formatElapsed(elapsed),
             style = type.timer,
             color = p.textPrimary,
         )
         Spacer(Modifier.height(18.dp))
-        GradientWaveform(amplitudes = state.amplitudes, height = 64.dp)
+        GradientWaveform(amplitudes = amps, height = 64.dp)
         Spacer(Modifier.height(20.dp))
         TranscriptBubble(state = state)
     }
@@ -855,6 +934,7 @@ private fun androidx.compose.foundation.layout.BoxScope.KeptBody(
     buttonsOffset: Dp,
     onViewEntry: () -> Unit,
     onAddAnother: () -> Unit,
+    onDismissSuggestion: (Long) -> Unit,
 ) {
     val p = Chron.palette
     val type = Chron.type
@@ -904,10 +984,32 @@ private fun androidx.compose.foundation.layout.BoxScope.KeptBody(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        if (kept.intentions.isNotEmpty()) {
+        val definite = kept.intentions.filter { !it.suggested }
+        val suggestions = kept.intentions.filter { it.suggested }
+        if (definite.isNotEmpty()) {
             Spacer(Modifier.height(18.dp))
-            kept.intentions.take(3).forEach { intention ->
+            definite.take(3).forEach { intention ->
                 IntentionRow(intention)
+                Spacer(Modifier.height(8.dp))
+            }
+        }
+        // Weak-intent parses (BE-10) sit apart under a quiet heading, each
+        // with a dismiss affordance — they're kept, not committed to.
+        if (suggestions.isNotEmpty()) {
+            Spacer(Modifier.height(14.dp))
+            Text(
+                text = "Suggestions",
+                style = type.meta,
+                color = p.textTertiary,
+            )
+            Spacer(Modifier.height(8.dp))
+            suggestions.take(3).forEach { intention ->
+                IntentionRow(
+                    intention = intention,
+                    onDismiss = intention.taskId?.let { id ->
+                        { onDismissSuggestion(id) }
+                    },
+                )
                 Spacer(Modifier.height(8.dp))
             }
         }
@@ -945,7 +1047,7 @@ private fun androidx.compose.foundation.layout.BoxScope.KeptBody(
 }
 
 @Composable
-private fun IntentionRow(intention: KeptIntention) {
+private fun IntentionRow(intention: KeptIntention, onDismiss: (() -> Unit)? = null) {
     val p = Chron.palette
     val type = Chron.type
     GlassSurface(
@@ -962,7 +1064,7 @@ private fun IntentionRow(intention: KeptIntention) {
                     if (intention.remindAt != null) R.drawable.ic_bell else R.drawable.ic_check,
                 ),
                 contentDescription = null,
-                tint = p.accent,
+                tint = if (intention.suggested) p.textTertiary else p.accent,
                 modifier = Modifier.size(16.dp),
             )
             Spacer(Modifier.width(12.dp))
@@ -980,6 +1082,19 @@ private fun IntentionRow(intention: KeptIntention) {
                 style = type.meta,
                 color = p.textTertiary,
             )
+            if (onDismiss != null) {
+                Spacer(Modifier.width(8.dp))
+                Icon(
+                    painter = painterResource(R.drawable.ic_close),
+                    contentDescription = "Dismiss suggestion",
+                    tint = p.textTertiary,
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onDismiss)
+                        .padding(6.dp),
+                )
+            }
         }
     }
 }

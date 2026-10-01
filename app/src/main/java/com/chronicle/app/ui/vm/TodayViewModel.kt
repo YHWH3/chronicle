@@ -18,6 +18,7 @@ import com.chronicle.app.domain.JournalEntry
 import com.chronicle.app.domain.toDomain
 import com.chronicle.app.media.LiveTranscriber
 import com.chronicle.app.media.RecordStart
+import com.chronicle.app.media.RecordingService
 import com.chronicle.app.media.TakeRecorder
 import com.chronicle.app.media.WavTranscriber
 import com.chronicle.app.mind.DeterministicMind
@@ -45,7 +46,17 @@ enum class RecordingState { IDLE, RECORDING }
 enum class ProcessingStep { TRANSCRIBING, SAVING, READING }
 
 /** An intention the mind pulled out of a capture, for the Kept card. */
-data class KeptIntention(val title: String, val remindAt: LocalDateTime?)
+data class KeptIntention(
+    val title: String,
+    val remindAt: LocalDateTime?,
+    /** Row id — lets the Kept card offer a per-row dismiss on suggestions. */
+    val taskId: Long? = null,
+    /**
+     * Weak-intent parse (BE-10): kept like any task but rendered under a
+     * quiet "Suggestions" heading with a reject affordance.
+     */
+    val suggested: Boolean = false,
+)
 
 /** What the save produced — drives the Kept phase. */
 data class KeptSummary(
@@ -61,8 +72,6 @@ data class KeptSummary(
 data class TodayUiState(
     val mode: CaptureMode = CaptureMode.SPEAK,
     val recording: RecordingState = RecordingState.IDLE,
-    val amplitudes: List<Float> = emptyList(),
-    val elapsedMs: Long = 0,
     val liveTranscript: String = "",
     val draftText: String = "",
     val speechAvailable: Boolean = true,
@@ -105,6 +114,17 @@ class TodayViewModel(
     private val _state = MutableStateFlow(TodayUiState(speechAvailable = transcriber.available))
     val state: StateFlow<TodayUiState> = _state
 
+    // FE-08 — the 90ms visualization streams stay out of [state] so a
+    // slider tick recomposes only the waveform/HUD subtree, not the screen.
+    private val _amplitudes = MutableStateFlow<List<Float>>(emptyList())
+    val amplitudes: StateFlow<List<Float>> = _amplitudes
+
+    private val _elapsedMs = MutableStateFlow(0L)
+    val elapsedMs: StateFlow<Long> = _elapsedMs
+
+    /** The day "Earlier today" is observing — re-emittable via [refreshDate]. */
+    private val _day = MutableStateFlow(LocalDate.now())
+
     /** Emits today's date, sleeps until the next local midnight, repeats —
      *  so "Earlier today" rolls over instead of freezing on the open date. */
     private fun currentDateFlow(): Flow<LocalDate> = flow {
@@ -117,7 +137,10 @@ class TodayViewModel(
 
     init {
         viewModelScope.launch {
-            (dateFlow ?: currentDateFlow())
+            (dateFlow ?: currentDateFlow()).collect { _day.value = it }
+        }
+        viewModelScope.launch {
+            _day
                 .flatMapLatest { journalRepository.observeDay(it) }
                 .collect { list ->
                     _state.value = _state.value.copy(
@@ -132,7 +155,22 @@ class TodayViewModel(
             ) { a1, e1, a2, e2 ->
                 if (recordingRecorder === wavRecorder) a2 to e2 else a1 to e1
             }.collect { (a, e) ->
-                _state.value = _state.value.copy(amplitudes = a, elapsedMs = e)
+                _amplitudes.value = a
+                _elapsedMs.value = e
+            }
+        }
+        viewModelScope.launch {
+            // BE-13 — signals from the keep-alive service: notification Stop
+            // keeps the take (same as tapping the stop circle); a focus loss
+            // (call, stolen mic) discards it — continuing would record zeros.
+            RecordingService.events.collect { event ->
+                when (event) {
+                    RecordingService.Event.STOP_REQUESTED ->
+                        if (_state.value.recording == RecordingState.RECORDING) {
+                            toggleRecording()
+                        }
+                    RecordingService.Event.INTERRUPTED -> interruptRecording()
+                }
             }
         }
         viewModelScope.launch {
@@ -169,6 +207,33 @@ class TodayViewModel(
 
     fun onMicPermissionResult(granted: Boolean) {
         _state.value = _state.value.copy(micPermissionGranted = granted)
+    }
+
+    /**
+     * Re-reads the wall clock — the screen calls this on ON_START so a
+     * device asleep past midnight (doze defers the timer flow's wake-up)
+     * lands on the new day immediately. StateFlow dedupes a same-day emit.
+     */
+    fun refreshDate() {
+        _day.value = LocalDate.now()
+    }
+
+    /**
+     * Audio focus was pulled mid-take — a call or another recorder owns the
+     * mic now, so the rest would capture silence. Drop the partial take
+     * rather than save a blank entry; the message explains it quietly.
+     */
+    private fun interruptRecording() {
+        if (_state.value.recording != RecordingState.RECORDING) return
+        val r = recordingRecorder ?: activeRecorder()
+        recordingRecorder = null
+        r.cancel()
+        if (r !== wavRecorder) transcriber.destroyNow()
+        _state.value = _state.value.copy(
+            recording = RecordingState.IDLE,
+            liveTranscript = "",
+        )
+        uiMessages.send(UiMessage.RecordingInterrupted)
     }
 
     fun toggleRecording() {
@@ -214,6 +279,33 @@ class TodayViewModel(
 
     fun dismissKept() {
         _state.value = _state.value.copy(kept = null)
+    }
+
+    /**
+     * Rejects a weak-intent suggestion on the Kept card — removes the row
+     * from the card and deletes the stored task (plus any armed alarm and
+     * already-posted notification for it).
+     */
+    fun dismissSuggestion(taskId: Long) {
+        val kept = _state.value.kept
+        if (kept != null) {
+            _state.value = _state.value.copy(
+                kept = kept.copy(
+                    intentions = kept.intentions.filterNot { it.taskId == taskId },
+                ),
+            )
+        }
+        viewModelScope.launch {
+            try {
+                reminders.cancelTask(taskId)
+                reminders.cancelNotification(taskId)
+                taskRepository.delete(taskId)
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                uiMessages.send(UiMessage.SaveFailed)
+            }
+        }
     }
 
     private fun finishRecording() {
@@ -420,7 +512,15 @@ class TodayViewModel(
                     // The alarm system refused — the intention itself is kept.
                 }
             }
-            intentions += KeptIntention(task.title, task.remindAt)
+            intentions += KeptIntention(
+                title = task.title,
+                remindAt = task.remindAt,
+                taskId = id,
+                // TODO(BE-10): task.suggested — MindTask/ExtractedTask gain
+                // the flag in the parser agent's commit; defaults to a firm
+                // intention until that lands.
+                suggested = false,
+            )
         }
         if (dropped > 0) {
             uiMessages.send(UiMessage.IntentionsPartial(dropped))
