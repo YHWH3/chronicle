@@ -31,7 +31,7 @@ data class ChroniclePalette(
 val PaperPalette = ChroniclePalette(
     textPrimary = Color(0xFF1F1D22),
     textSecondary = Color(0xFF5E5A63),
-    textTertiary = Color(0xFF8E8993),
+    textTertiary = Color(0xFF867F8B),
     accent = Color(0xFF7F6CC9),
     accentSoft = Color(0xFFD9CFF6),
     peach = Color(0xFFF3C7AE),
@@ -49,7 +49,7 @@ val PaperPalette = ChroniclePalette(
 val InkPalette = ChroniclePalette(
     textPrimary = Color(0xFFF2EEF0),
     textSecondary = Color(0xFFB8B2BD),
-    textTertiary = Color(0xFF858090),
+    textTertiary = Color(0xFF9A95A4),
     accent = Color(0xFFC9BCF5),
     accentSoft = Color(0xFF3E3858),
     peach = Color(0xFFE9B89C),
