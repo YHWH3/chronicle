@@ -4,7 +4,8 @@ A quiet, local-first Android journal. Speak or write what happened today —
 Chronicle keeps it on-device, quietly pulls out the things you said you'd do,
 and over time collates your days into a written story.
 
-No accounts. No feeds. No AI gloss. Everything lives on the phone.
+No accounts. No feeds. No AI gloss. By default, everything lives on the
+phone.
 
 ## What it does
 
@@ -18,6 +19,24 @@ No accounts. No feeds. No AI gloss. Everything lives on the phone.
   rescheduled across reboots.
 - **Details** — Ink (dark) / Paper (light) / system theme; an optional daily
   writing nudge.
+
+## The Mind
+
+Settings → The Mind chooses how entries are read:
+
+- **Quiet parser** (default) — deterministic rules; instant, offline,
+  nothing leaves the phone.
+- **On-device model** — Llama 3.2 3B, downloaded once and run locally.
+- **OpenRouter** — free cloud models; pick one from the list or type any
+  model id (`vendor/model[:tag]`). Needs an API key.
+- **Custom endpoint** — any OpenAI-compatible server. HTTPS only;
+  cleartext HTTP is refused app-wide by the network security config.
+
+For the cloud backends, the entry's text — nothing else — is sent to the
+configured service when you save. API keys are stored encrypted via
+Android Keystore. A cloud call gives up after 20 seconds; on any failure
+the Quiet parser answers instead, and the kept card names the engine that
+actually responded.
 
 ## Stack
 
