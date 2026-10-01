@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,11 +30,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import com.chronicle.app.R
 import com.chronicle.app.mind.ModelKind
 import com.chronicle.app.mind.ModelState
 import com.chronicle.app.ui.design.Chron
@@ -53,6 +50,12 @@ import com.chronicle.app.ui.theme.ChronicleMotion
 import com.chronicle.app.ui.vm.SettingsViewModel
 import kotlin.math.roundToLong
 
+/** "487170055" → "487 MB"; [bytes] <= 0 renders as [fallback]. */
+private fun formatSize(bytes: Long, fallback: String): String =
+    if (bytes <= 0) fallback
+    else if (bytes >= 1_000_000_000L) "≈ ${"%.1f".format(bytes / 1_000_000_000f)} GB"
+    else "≈ ${bytes / 1_000_000} MB"
+
 /** The model detail page — download, unpack, ready, delete. */
 @Composable
 fun SettingsModelPage(
@@ -66,16 +69,14 @@ fun SettingsModelPage(
         ModelKind.PARAKEET_STT -> state.parakeetUrl
         ModelKind.LOCAL_LLM -> state.llmUrl
     }
-    val nominalMb = when (kind) {
-        ModelKind.PARAKEET_STT -> 250L
-        ModelKind.LOCAL_LLM -> 2048L
-    }
-    val nominalSize = when (kind) {
-        ModelKind.PARAKEET_STT -> "250 MB"
-        ModelKind.LOCAL_LLM -> "2 GB"
-    }
+    // Real size of the default archive when there is one; honest "varies" otherwise.
+    val sizeLabel = formatSize(
+        kind.nominalBytes,
+        fallback = "varies with the model you pick",
+    )
     var confirmDelete by remember { mutableStateOf(false) }
-    var sourceOpen by remember { mutableStateOf(false) }
+    // With no URL the source field is the way forward — open it by default.
+    var sourceOpen by remember { mutableStateOf(url.isBlank()) }
 
     SettingsPage(title = kind.title.substringBefore(" · "), onBack = onBack) {
         Text(
@@ -88,7 +89,7 @@ fun SettingsModelPage(
         )
         Spacer(Modifier.height(Spacing.x6))
         Text(
-            text = "≈ $nominalSize",
+            text = sizeLabel,
             style = Chron.type.numeric.copy(fontSize = 26.sp, lineHeight = 32.sp),
             color = Chron.palette.textPrimary,
         )
@@ -103,12 +104,17 @@ fun SettingsModelPage(
         when (val s = modelState) {
             is ModelState.NotInstalled -> {
                 PrimaryPill(
-                    label = "Download · $nominalSize",
+                    label = if (kind.nominalBytes > 0) "Download · $sizeLabel" else "Download",
                     onClick = { viewModel.installModel(kind) },
+                    enabled = url.isNotBlank(),
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "Best on Wi-Fi.",
+                    text = if (url.isBlank()) {
+                        "Paste a download URL below first — the model isn't bundled."
+                    } else {
+                        "Best on Wi-Fi. Interrupted downloads resume."
+                    },
                     style = Chron.type.meta,
                     color = Chron.palette.textTertiary,
                 )
@@ -116,7 +122,6 @@ fun SettingsModelPage(
 
             is ModelState.Downloading -> DownloadingBody(
                 state = s,
-                nominalMb = nominalMb,
                 onCancel = { viewModel.cancelModelDownload(kind) },
             )
 
@@ -162,6 +167,7 @@ fun SettingsModelPage(
                 SecondaryPill(
                     label = "Try again",
                     onClick = { viewModel.installModel(kind) },
+                    enabled = url.isNotBlank(),
                 )
             }
         }
@@ -207,15 +213,23 @@ fun SettingsModelPage(
                     placeholder = "Model download URL",
                     singleLine = true,
                 )
-                if (kind == ModelKind.LOCAL_LLM) {
-                    Spacer(Modifier.height(Spacing.x2))
-                    Text(
-                        text = "The Llama download is licence-gated — accept Meta's " +
-                            "licence on huggingface.co, then paste the .task link here.",
-                        style = Chron.type.meta,
-                        color = Chron.palette.textTertiary,
-                    )
-                }
+                Spacer(Modifier.height(Spacing.x2))
+                Text(
+                    text = when (kind) {
+                        ModelKind.PARAKEET_STT ->
+                            "Defaults to the sherpa-onnx release on GitHub. " +
+                                "Paste a different archive URL if you host the model yourself."
+                        ModelKind.LOCAL_LLM ->
+                            "Bring your own model — Chronicle doesn't bundle one and " +
+                                "there's no file-picker import yet. Download a " +
+                                "MediaPipe-compatible .task or .litertlm bundle yourself " +
+                                "(for example a Llama 3.2 build on huggingface.co — most " +
+                                "are licence-gated: accept the licence there, copy the " +
+                                "download link, paste it here)."
+                    },
+                    style = Chron.type.meta,
+                    color = Chron.palette.textTertiary,
+                )
             }
         }
     }
@@ -263,7 +277,6 @@ fun SettingsModelPage(
 @Composable
 private fun DownloadingBody(
     state: ModelState.Downloading,
-    nominalMb: Long,
     onCancel: () -> Unit,
 ) {
     // Rolling rate samples for the ETA — shown only once the estimate is stable.
@@ -301,7 +314,13 @@ private fun DownloadingBody(
         )
         Spacer(Modifier.width(Spacing.x3))
         Text(
-            text = "${state.doneBytes / 1_000_000} / $nominalMb MB",
+            // The real Content-Length once the server reports it; before that,
+            // just bytes done — never a guessed total.
+            text = if (state.totalBytes > 0) {
+                "of ${state.totalBytes / 1_000_000} MB"
+            } else {
+                "${state.doneBytes / 1_000_000} MB so far"
+            },
             style = Chron.type.numeric,
             color = Chron.palette.textTertiary,
         )
@@ -342,5 +361,3 @@ private fun computeEta(
         else -> "≈ ${minutes + 1} min left"
     }
 }
-
-

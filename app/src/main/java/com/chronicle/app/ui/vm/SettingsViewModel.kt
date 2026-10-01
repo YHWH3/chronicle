@@ -10,9 +10,9 @@ import com.chronicle.app.media.LiveTranscriber
 import com.chronicle.app.mind.ChatMind
 import com.chronicle.app.mind.DeterministicMind
 import com.chronicle.app.mind.MindSource
+import com.chronicle.app.mind.ModelInstallManager
 import com.chronicle.app.mind.ModelKind
 import com.chronicle.app.mind.ModelState
-import com.chronicle.app.mind.ModelStore
 import com.chronicle.app.reminders.ReminderGateway
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -46,7 +46,7 @@ data class SettingsUiState(
 
 class SettingsViewModel(
     private val prefsRepository: PrefsRepository,
-    private val modelStore: ModelStore,
+    private val modelInstallManager: ModelInstallManager,
     private val mindRepository: MindSource,
     private val transcriber: LiveTranscriber,
     private val reminders: ReminderGateway,
@@ -82,7 +82,7 @@ class SettingsViewModel(
             }
         }
         viewModelScope.launch {
-            modelStore.states.collect { m ->
+            modelInstallManager.states.collect { m ->
                 _state.value = _state.value.copy(models = m)
             }
         }
@@ -130,16 +130,22 @@ class SettingsViewModel(
         viewModelScope.launch { prefsRepository.setModelUrls(parakeetUrl, llmUrl) }
     }
 
+    /**
+     * Delegates to the app-scoped [ModelInstallManager] — the download is
+     * owned by the app, not this ViewModel, so it survives leaving Settings.
+     */
     fun installModel(kind: ModelKind) {
         val url = when (kind) {
             ModelKind.PARAKEET_STT -> _state.value.parakeetUrl
             ModelKind.LOCAL_LLM -> _state.value.llmUrl
         }
-        val job = viewModelScope.launch { modelStore.install(kind, url) }
-        modelStore.registerJob(kind, job)
+        modelInstallManager.install(kind, url)
     }
 
-    fun cancelModelDownload(kind: ModelKind) = modelStore.cancel(kind)
+    fun cancelModelDownload(kind: ModelKind) = modelInstallManager.cancel(kind)
 
-    fun deleteModel(kind: ModelKind) = modelStore.delete(kind)
+    /** Deleting also releases any loaded engine via the manager's listeners. */
+    fun deleteModel(kind: ModelKind) {
+        viewModelScope.launch { modelInstallManager.delete(kind) }
+    }
 }

@@ -13,6 +13,7 @@ import com.chronicle.app.media.SpeechTranscriber
 import com.chronicle.app.media.VoiceRecorder
 import com.chronicle.app.media.WavRecorder
 import com.chronicle.app.mind.MindRepository
+import com.chronicle.app.mind.ModelInstallManager
 import com.chronicle.app.mind.ModelStore
 import com.chronicle.app.reminders.AndroidReminderGateway
 import com.chronicle.app.reminders.ReminderGateway
@@ -46,7 +47,17 @@ class AppContainer(context: Context) {
     val transcriber = SpeechTranscriber(appContext)
     val player = EntryPlayer(appScope, uiMessages)
 
-    val modelStore = ModelStore(appContext)
-    val mindRepository = MindRepository(appContext, prefsRepository, modelStore)
-    val parakeetTranscriber = ParakeetTranscriber(appContext, modelStore)
+    /**
+     * Model downloads own their own scope — a transfer must keep running
+     * (and stay resumable) after the user navigates away from Settings.
+     */
+    private val installScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** Pure on-disk model state — shared by the installer and the engines. */
+    private val modelDisk = ModelStore(appContext)
+
+    /** The model download/install owner — also answers "is the pack on disk". */
+    val modelStore = ModelInstallManager(modelDisk, installScope)
+    val parakeetTranscriber = ParakeetTranscriber(appContext, modelDisk)
+    val mindRepository = MindRepository(appContext, prefsRepository, modelDisk)
 }

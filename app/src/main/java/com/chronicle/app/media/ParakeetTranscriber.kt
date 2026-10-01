@@ -126,5 +126,16 @@ class ParakeetTranscriber(
 
     companion object {
         const val SAMPLE_RATE = 16_000
+
+        /**
+         * The files [engine] needs inside the pack — also the list the
+         * install manager validates before a download becomes "installed".
+         */
+        val REQUIRED_MODEL_FILES = listOf(
+            "encoder.int8.onnx",
+            "decoder.int8.onnx",
+            "joiner.int8.onnx",
+            "tokens.txt",
+        )
     }
 }

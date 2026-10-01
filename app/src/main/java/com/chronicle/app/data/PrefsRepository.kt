@@ -51,9 +51,12 @@ data class ChroniclePrefs(
         const val DEFAULT_PARAKEET_URL =
             "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/" +
                 "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2"
-        const val DEFAULT_LLM_URL =
-            "https://huggingface.co/litert-community/Llama-3.2-3B-Instruct/resolve/main/" +
-                "Llama-3.2-3B-Instruct_multi-prefill-seq_q8_ekv1280.task"
+        /**
+         * No default LLM source: the usual .task bundles are licence-gated,
+         * so shipping a dead URL would just fail. The field starts blank and
+         * the user pastes their own model archive link.
+         */
+        const val DEFAULT_LLM_URL = ""
     }
 }
 
