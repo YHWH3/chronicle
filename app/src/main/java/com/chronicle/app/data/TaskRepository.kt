@@ -42,4 +42,7 @@ class TaskRepository(private val taskDao: TaskDao) {
         taskDao.update(task.copy(remindAt = remindAt, done = false, doneAt = null))
 
     suspend fun delete(id: Long) = taskDao.deleteById(id)
+
+    /** Detaches intentions from a deleted entry — the tasks themselves survive. */
+    suspend fun clearSourceEntry(entryId: Long) = taskDao.clearSourceEntry(entryId)
 }

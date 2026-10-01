@@ -2,16 +2,28 @@ package com.chronicle.app.data.db
 
 import androidx.room.Dao
 import androidx.room.Database
-import androidx.room.Delete
 import androidx.room.Entity
+import androidx.room.Index
+import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
 import androidx.room.Update
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
-@Entity(tableName = "entries")
+/** Transcript lifecycle values stored on [EntryEntity.transcriptStatus]. */
+const val TRANSCRIPT_PENDING = "pending"
+const val TRANSCRIPT_READY = "ready"
+const val TRANSCRIPT_FAILED = "failed"
+const val TRANSCRIPT_NOT_REQUESTED = "not_requested"
+
+@Entity(
+    tableName = "entries",
+    indices = [Index("day"), Index("createdAt")],
+)
 data class EntryEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val createdAt: Long,
@@ -22,9 +34,16 @@ data class EntryEntity(
     val transcript: String,
     val audioPath: String? = null,
     val durationMs: Long = 0,
+    /** TRANSCRIPT_* — how [transcript] was produced; drives the retry affordance. */
+    val transcriptStatus: String = TRANSCRIPT_READY,
+    /** ZoneId.getId() captured at write time so times render in the writer's zone. */
+    val zoneId: String? = null,
 )
 
-@Entity(tableName = "tasks")
+@Entity(
+    tableName = "tasks",
+    indices = [Index("remindAt"), Index("done")],
+)
 data class TaskEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val title: String,
@@ -33,6 +52,8 @@ data class TaskEntity(
     val done: Boolean = false,
     val doneAt: Long? = null,
     val sourceEntryId: Long? = null,
+    /** When the reminder actually fired — distinguishes missed from pending. */
+    val notifiedAt: Long? = null,
 )
 
 @Dao
@@ -46,8 +67,17 @@ interface EntryDao {
     @Query("SELECT * FROM entries ORDER BY createdAt ASC")
     suspend fun allOnce(): List<EntryEntity>
 
+    @Query("SELECT * FROM entries WHERE id = :id")
+    suspend fun byId(id: Long): EntryEntity?
+
     @Insert
     suspend fun insert(entry: EntryEntity): Long
+
+    @Query("UPDATE entries SET transcript = :transcript, transcriptStatus = :status WHERE id = :id")
+    suspend fun updateTranscript(id: Long, transcript: String, status: String)
+
+    @Query("UPDATE entries SET transcriptStatus = :status WHERE id = :id")
+    suspend fun updateTranscriptStatus(id: Long, status: String)
 
     @Delete
     suspend fun delete(entry: EntryEntity)
@@ -81,10 +111,44 @@ interface TaskDao {
 
     @Query("DELETE FROM tasks WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    /** Detaches intentions from a deleted entry — tasks survive on their own. */
+    @Query("UPDATE tasks SET sourceEntryId = NULL WHERE sourceEntryId = :entryId")
+    suspend fun clearSourceEntry(entryId: Long)
 }
 
-@Database(entities = [EntryEntity::class, TaskEntity::class], version = 1, exportSchema = false)
+@Database(
+    entities = [EntryEntity::class, TaskEntity::class],
+    version = 2,
+    exportSchema = true,
+)
 abstract class ChronicleDatabase : RoomDatabase() {
     abstract fun entryDao(): EntryDao
     abstract fun taskDao(): TaskDao
+
+    companion object {
+        /**
+         * v1 → v2: entry transcript lifecycle + writer's zone, task delivery
+         * tracking, and the lookup indexes the new queries lean on.
+         * Existing voice rows with no transcript were never visibly failing —
+         * they're marked "not_requested" (audio note), not "failed".
+         */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE tasks ADD COLUMN notifiedAt INTEGER")
+                db.execSQL(
+                    "ALTER TABLE entries ADD COLUMN transcriptStatus TEXT NOT NULL DEFAULT 'ready'",
+                )
+                db.execSQL("ALTER TABLE entries ADD COLUMN zoneId TEXT")
+                db.execSQL(
+                    "UPDATE entries SET transcriptStatus = 'not_requested' " +
+                        "WHERE kind = 'voice' AND (transcript IS NULL OR trim(transcript) = '')",
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_entries_day ON entries(day)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_entries_createdAt ON entries(createdAt)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_tasks_remindAt ON tasks(remindAt)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_tasks_done ON tasks(done)")
+            }
+        }
+    }
 }

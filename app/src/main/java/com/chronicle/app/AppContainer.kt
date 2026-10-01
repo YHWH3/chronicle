@@ -31,7 +31,7 @@ class AppContainer(context: Context) {
         appContext,
         ChronicleDatabase::class.java,
         "chronicle.db",
-    ).build()
+    ).addMigrations(ChronicleDatabase.MIGRATION_1_2).build()
 
     val journalRepository = JournalRepository(database.entryDao())
     val taskRepository = TaskRepository(database.taskDao())
