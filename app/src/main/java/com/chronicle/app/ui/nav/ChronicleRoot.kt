@@ -241,6 +241,7 @@ fun ChronicleRoot(container: AppContainer) {
                                 container.player,
                                 container.parakeetTranscriber,
                                 container.uiMessages,
+                                container.taskRepository,
                             )
                         })
                         JournalScreen(

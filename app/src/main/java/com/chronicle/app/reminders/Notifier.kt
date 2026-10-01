@@ -91,6 +91,8 @@ object Notifier {
         ensureChannels(context)
         val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
             ?: Intent(context, MainActivity::class.java)
+        // Reuse a running MainActivity instead of stacking a second one.
+        intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         intent.putExtra(EXTRA_ROUTE, route)
         val pending = PendingIntent.getActivity(
             context, id, intent,

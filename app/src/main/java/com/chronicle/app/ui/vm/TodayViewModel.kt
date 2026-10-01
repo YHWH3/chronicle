@@ -516,10 +516,7 @@ class TodayViewModel(
                 title = task.title,
                 remindAt = task.remindAt,
                 taskId = id,
-                // TODO(BE-10): task.suggested — MindTask/ExtractedTask gain
-                // the flag in the parser agent's commit; defaults to a firm
-                // intention until that lands.
-                suggested = false,
+                suggested = task.suggested,
             )
         }
         if (dropped > 0) {
