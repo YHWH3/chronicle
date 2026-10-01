@@ -45,6 +45,10 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 import com.chronicle.app.data.db.TaskEntity
+import com.chronicle.app.data.db.TRANSCRIPT_FAILED
+import com.chronicle.app.data.db.TRANSCRIPT_NOT_REQUESTED
+import com.chronicle.app.data.db.TRANSCRIPT_PENDING
+import com.chronicle.app.data.db.TRANSCRIPT_READY
 
 fun Long.asLocalDateTime(): LocalDateTime =
     LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(this), ZoneId.systemDefault())
@@ -74,6 +78,8 @@ data class KeptSummary(
     val reflection: String?,
     val engineLabel: String,
     val entryId: Long,
+    /** The take is on disk but speech-to-text failed — card notes it quietly. */
+    val transcriptFailed: Boolean = false,
 )
 
 data class TodayUiState(
@@ -112,6 +118,12 @@ class TodayViewModel(
     private val mindRepository: MindSource,
     private val reminders: ReminderGateway,
     private val uiMessages: UiMessageBus,
+    /**
+     * The "what day is it" source — default rolls over at local midnight.
+     * Tests inject a static flow: the delay-until-midnight loop would keep a
+     * test scheduler busy forever.
+     */
+    private val dateFlow: Flow<LocalDate>? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(TodayUiState(speechAvailable = transcriber.available))
@@ -129,7 +141,7 @@ class TodayViewModel(
 
     init {
         viewModelScope.launch {
-            currentDateFlow()
+            (dateFlow ?: currentDateFlow())
                 .flatMapLatest { journalRepository.observeDay(it) }
                 .collect { list ->
                     _state.value = _state.value.copy(
@@ -245,22 +257,34 @@ class TodayViewModel(
             try {
                 // Suspend stop — writers join before the device is released.
                 val take = recorder.stop()
-                // Waits briefly for the final recognition results before snapshotting.
-                val transcript = if (parakeetTake) {
+
+                // ————— Transcribe —————
+                var transcript = ""
+                var transcriptStatus = TRANSCRIPT_NOT_REQUESTED
+                if (parakeetTake) {
                     take?.first?.let { file ->
                         when (val r = safeSuspend { parakeetTranscriber.transcribe(file) }) {
-                            is OperationResult.Ok -> r.value
+                            is OperationResult.Ok -> {
+                                transcript = r.value
+                                transcriptStatus = TRANSCRIPT_READY
+                            }
                             is OperationResult.Failed -> {
+                                // The WAV stays on disk; FAILED lets Journal
+                                // offer "Transcribe again" later.
+                                transcriptStatus = TRANSCRIPT_FAILED
                                 uiMessages.send(UiMessage.TranscriptionFailed)
-                                ""
                             }
                         }
-                    }.orEmpty()
+                    }
                 } else {
                     safeSuspend { transcriber.stop() }
-                    transcriber.transcript.ifBlank { _state.value.liveTranscript }
+                    transcript = transcriber.transcript.ifBlank { _state.value.liveTranscript }
+                    transcriptStatus =
+                        if (transcript.isBlank()) TRANSCRIPT_NOT_REQUESTED else TRANSCRIPT_READY
                 }
-                val (audioPath, duration) = take?.let { it.first.absolutePath to it.second } ?: (null to 0L)
+
+                val (audioPath, duration) =
+                    take?.let { it.first.absolutePath to it.second } ?: (null to 0L)
                 if (transcript.isBlank() && audioPath == null) {
                     awaitDwell(processingStart)
                     _state.value = _state.value.copy(
@@ -271,10 +295,28 @@ class TodayViewModel(
                     )
                     return@launch
                 }
+
+                // ————— Save — the entry lands FIRST so nothing below loses it. —————
                 _state.value = _state.value.copy(processingStep = ProcessingStep.SAVING)
-                val entryId = journalRepository.addVoice(transcript, audioPath, duration)
+                val entryId = try {
+                    journalRepository.addVoice(transcript, audioPath, duration, transcriptStatus)
+                } catch (ce: CancellationException) {
+                    throw ce
+                } catch (t: Throwable) {
+                    uiMessages.send(UiMessage.SaveFailed)
+                    awaitDwell(processingStart)
+                    _state.value = _state.value.copy(
+                        liveTranscript = "",
+                        saving = false,
+                        processing = false,
+                        processingStep = null,
+                    )
+                    return@launch
+                }
+
+                // ————— Read intentions — its own step; failure keeps the entry. —————
                 _state.value = _state.value.copy(processingStep = ProcessingStep.READING)
-                val kept = materializeTasks(transcript, entryId)
+                val kept = materializeTasks(transcript, entryId, transcriptStatus)
                 awaitDwell(processingStart)
                 _state.value = _state.value.copy(
                     liveTranscript = "",
@@ -316,7 +358,8 @@ class TodayViewModel(
         )
         viewModelScope.launch {
             try {
-                val entryId = journalRepository.addText(text)
+                // Entry first — a failing mind pass can never undo the save.
+                val entryId = journalRepository.addText(text, TRANSCRIPT_READY)
                 _state.value = _state.value.copy(processingStep = ProcessingStep.READING)
                 val kept = materializeTasks(text, entryId)
                 awaitDwell(processingStart)
@@ -352,14 +395,20 @@ class TodayViewModel(
         if (remaining > 0) kotlinx.coroutines.delay(remaining)
     }
 
-    /** Turns the captured words into reminders. Reminder logic unchanged. */
+    /**
+     * Turns the captured words into intentions. Runs AFTER the entry commits —
+     * one failing task never takes the others down with it, and the saved
+     * entry stays regardless. Reminder logic unchanged.
+     */
     private suspend fun materializeTasks(
         text: String,
         entryId: Long,
+        transcriptStatus: String = TRANSCRIPT_READY,
     ): KeptSummary {
+        val transcriptFailed = transcriptStatus == TRANSCRIPT_FAILED
         if (text.isBlank()) {
             // An audio-only note — nothing was read, so no engine claims credit.
-            return KeptSummary(0, emptyList(), null, "", entryId)
+            return KeptSummary(0, emptyList(), null, "", entryId, transcriptFailed)
         }
         val exec = try {
             mindRepository.extract(text, LocalDateTime.now())
@@ -373,15 +422,35 @@ class TodayViewModel(
         }
         val engineLabel = exec?.actualLabel ?: DeterministicMind.label
         var scheduled = 0
+        var dropped = 0
         val intentions = mutableListOf<KeptIntention>()
         for (task in exec?.result?.tasks.orEmpty()) {
             val remindMs = task.remindAt?.toEpochMs()
-            val id = taskRepository.add(task.title, remindMs, entryId)
+            val id = try {
+                taskRepository.add(task.title, remindMs, entryId)
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                dropped++
+                continue
+            }
             if (remindMs != null && remindMs > System.currentTimeMillis()) {
-                reminders.scheduleTask(id, task.title, remindMs)
-                scheduled++
+                try {
+                    reminders.scheduleTask(id, task.title, remindMs)
+                    scheduled++
+                } catch (ce: CancellationException) {
+                    throw ce
+                } catch (t: Throwable) {
+                    // The alarm system refused — the intention itself is kept.
+                }
             }
             intentions += KeptIntention(task.title, task.remindAt)
+        }
+        if (dropped > 0) {
+            uiMessages.send(UiMessage.IntentionsPartial(dropped))
+        }
+        if (scheduled > 0 && !reminders.notificationsEnabled()) {
+            uiMessages.send(UiMessage.NotificationsOff)
         }
         return KeptSummary(
             reminders = scheduled,
@@ -389,6 +458,7 @@ class TodayViewModel(
             reflection = exec?.result?.reflection,
             engineLabel = engineLabel,
             entryId = entryId,
+            transcriptFailed = transcriptFailed,
         )
     }
 
@@ -409,11 +479,17 @@ data class JournalUiState(
     val days: List<JournalDay> = emptyList(),
     val playingPath: String? = null,
     val progress: Float = 0f,
+    /** Parakeet pack installed — FAILED entries can offer "Transcribe again". */
+    val canRetranscribe: Boolean = false,
+    /** Entries currently being re-transcribed — guards double-taps. */
+    val transcribingIds: Set<Long> = emptySet(),
 )
 
 class JournalViewModel(
     private val journalRepository: JournalRepository,
     private val player: EntryPlayer,
+    private val wavTranscriber: WavTranscriber,
+    private val uiMessages: UiMessageBus,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(JournalUiState())
@@ -426,7 +502,10 @@ class JournalViewModel(
                     .groupBy { it.day }
                     .toSortedMap(compareByDescending { it })
                     .map { (day, entries) -> JournalDay(day, entries) }
-                _state.value = _state.value.copy(days = grouped)
+                _state.value = _state.value.copy(
+                    days = grouped,
+                    canRetranscribe = wavTranscriber.available,
+                )
             }
         }
         viewModelScope.launch {
@@ -438,6 +517,46 @@ class JournalViewModel(
     }
 
     fun togglePlay(path: String) = player.toggle(path)
+
+    /**
+     * Re-runs Parakeet on a take whose transcription failed. The audio file
+     * is untouched; on success the transcript and READY status land together.
+     */
+    fun retryTranscription(entry: JournalEntry) {
+        val path = entry.audioPath ?: return
+        if (!wavTranscriber.available) return
+        if (entry.id in _state.value.transcribingIds) return
+        _state.value = _state.value.copy(
+            transcribingIds = _state.value.transcribingIds + entry.id,
+        )
+        viewModelScope.launch {
+            try {
+                journalRepository.updateTranscriptStatus(entry.id, TRANSCRIPT_PENDING)
+                when (val r = safeSuspend { wavTranscriber.transcribe(java.io.File(path)) }) {
+                    is OperationResult.Ok -> {
+                        if (r.value.isBlank()) {
+                            journalRepository.updateTranscript(entry.id, "", TRANSCRIPT_FAILED)
+                            uiMessages.send(UiMessage.TranscriptionFailed)
+                        } else {
+                            journalRepository.updateTranscript(entry.id, r.value, TRANSCRIPT_READY)
+                        }
+                    }
+                    is OperationResult.Failed -> {
+                        journalRepository.updateTranscriptStatus(entry.id, TRANSCRIPT_FAILED)
+                        uiMessages.send(UiMessage.TranscriptionFailed)
+                    }
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                uiMessages.send(UiMessage.SaveFailed)
+            } finally {
+                _state.value = _state.value.copy(
+                    transcribingIds = _state.value.transcribingIds - entry.id,
+                )
+            }
+        }
+    }
 
     fun delete(entry: JournalEntry) {
         viewModelScope.launch {

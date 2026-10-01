@@ -884,6 +884,15 @@ private fun androidx.compose.foundation.layout.BoxScope.KeptBody(
             style = type.body,
             color = if (kept.reminders > 0) p.accent else p.textSecondary,
         )
+        if (kept.transcriptFailed) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "Transcription failed — your audio is kept.",
+                style = type.meta,
+                color = p.warning,
+                textAlign = TextAlign.Center,
+            )
+        }
         if (!kept.reflection.isNullOrBlank()) {
             Spacer(Modifier.height(8.dp))
             Text(

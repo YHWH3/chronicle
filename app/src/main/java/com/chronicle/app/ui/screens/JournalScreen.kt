@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import com.chronicle.app.R
 import com.chronicle.app.domain.EntryKind
 import com.chronicle.app.domain.JournalEntry
+import com.chronicle.app.domain.TranscriptStatus
 import com.chronicle.app.ui.design.Chron
 import com.chronicle.app.ui.design.GhostButton
 import com.chronicle.app.ui.design.GlassSurface
@@ -131,11 +132,16 @@ fun JournalScreen(viewModel: JournalViewModel, onOpenToday: () -> Unit) {
                                 expanded = expandedId == entry.id,
                                 isPlaying = isPlaying,
                                 progress = if (isPlaying) state.progress else 0f,
+                                canRetranscribe = state.canRetranscribe,
+                                transcribing = entry.id in state.transcribingIds,
                                 onClick = {
                                     expandedId =
                                         if (expandedId == entry.id) null else entry.id
                                 },
                                 onPlay = { entry.audioPath?.let { viewModel.togglePlay(it) } },
+                                onRetryTranscription = {
+                                    viewModel.retryTranscription(entry)
+                                },
                                 onDelete = {
                                     expandedId = null
                                     viewModel.delete(entry)
@@ -156,8 +162,11 @@ private fun JournalEntryRow(
     expanded: Boolean,
     isPlaying: Boolean,
     progress: Float,
+    canRetranscribe: Boolean,
+    transcribing: Boolean,
     onClick: () -> Unit,
     onPlay: () -> Unit,
+    onRetryTranscription: () -> Unit,
     onDelete: () -> Unit,
 ) {
     val p = Chron.palette
@@ -234,14 +243,48 @@ private fun JournalEntryRow(
             )
         }
 
+        // A take that kept its audio but lost its words says so quietly —
+        // and offers a retry once the model that can read it is installed.
+        // PENDING covers a retry orphaned by a process death.
+        val needsTranscript = entry.kind == EntryKind.VOICE &&
+            (entry.transcriptStatus == TranscriptStatus.FAILED ||
+                entry.transcriptStatus == TranscriptStatus.PENDING)
+        if (needsTranscript || transcribing) {
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text = if (transcribing ||
+                    entry.transcriptStatus == TranscriptStatus.PENDING
+                ) {
+                    "Transcribing…"
+                } else {
+                    "Transcription failed — audio kept."
+                },
+                style = type.meta,
+                color = p.warning,
+                modifier = Modifier.padding(start = 46.dp),
+            )
+        }
+
         if (expanded) {
             Spacer(Modifier.height(8.dp))
-            GhostButton(
-                label = "Delete",
-                onClick = onDelete,
-                color = p.warning,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.align(Alignment.End),
-            )
+            ) {
+                if (needsTranscript && canRetranscribe && entry.audioPath != null) {
+                    GhostButton(
+                        label = if (transcribing) "Transcribing…" else "Transcribe again",
+                        onClick = { if (!transcribing) onRetryTranscription() },
+                        color = p.accent,
+                    )
+                    Spacer(Modifier.width(Spacing.x4))
+                }
+                GhostButton(
+                    label = "Delete",
+                    onClick = onDelete,
+                    color = p.warning,
+                )
+            }
         }
     }
 }

@@ -194,7 +194,12 @@ fun ChronicleRoot(container: AppContainer) {
                     }
                     composable(Routes.JOURNAL) {
                         val vm: JournalViewModel = viewModel(factory = vmFactory {
-                            JournalViewModel(container.journalRepository, container.player)
+                            JournalViewModel(
+                                container.journalRepository,
+                                container.player,
+                                container.parakeetTranscriber,
+                                container.uiMessages,
+                            )
                         })
                         JournalScreen(
                             vm,
