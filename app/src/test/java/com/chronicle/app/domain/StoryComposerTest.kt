@@ -46,12 +46,92 @@ class StoryComposerTest {
     fun `same day entries stitch with later`() {
         val entries = listOf(
             entry(LocalDate.of(2026, 9, 25), 8, "Woke early"),
-            entry(LocalDate.of(2026, 9, 25), 20, "Watched the rain"),
+            entry(LocalDate.of(2026, 9, 25), 9, "made coffee"),
         )
         val story = StoryComposer.compose(entries, LocalDate.of(2026, 9, 25))
         val paragraph = story.chapters.single().paragraphs.single()
-        assertTrue(paragraph.contains("Later, watched the rain."))
+        assertTrue(paragraph.contains("Later, made coffee."))
         assertTrue(paragraph.startsWith("On Friday, the twenty-fifth of September,"))
+    }
+
+    @Test
+    fun `long evening gap earns a time-aware connective`() {
+        val entries = listOf(
+            entry(LocalDate.of(2026, 9, 25), 8, "Woke early"),
+            entry(LocalDate.of(2026, 9, 25), 20, "Watched the rain"),
+        )
+        val story = StoryComposer.compose(entries, LocalDate.of(2026, 9, 25))
+        // Capitalized word stays capitalized — it may be a proper noun.
+        assertTrue(
+            story.chapters.single().paragraphs.single()
+                .contains("That evening, Watched the rain."),
+        )
+    }
+
+    @Test
+    fun `long daytime gap uses later that day`() {
+        val entries = listOf(
+            entry(LocalDate.of(2026, 9, 25), 8, "a dawn walk"),
+            entry(LocalDate.of(2026, 9, 25), 14, "lunch with Mara"),
+        )
+        val story = StoryComposer.compose(entries, LocalDate.of(2026, 9, 25))
+        assertTrue(
+            story.chapters.single().paragraphs.single()
+                .contains("Later that day, lunch with Mara."),
+        )
+    }
+
+    @Test
+    fun `back-to-back entries need no connective`() {
+        val entries = listOf(
+            entry(LocalDate.of(2026, 9, 25), 9, "woke early"),
+            entry(LocalDate.of(2026, 9, 25), 9, "coffee was good"),
+        )
+        val story = StoryComposer.compose(entries, LocalDate.of(2026, 9, 25))
+        assertTrue(
+            story.chapters.single().paragraphs.single()
+                .contains("Woke early. Coffee was good."),
+        )
+    }
+
+    @Test
+    fun `I and I-forms keep their capital after a connective`() {
+        val entries = listOf(
+            entry(LocalDate.of(2026, 9, 25), 8, "a slow morning"),
+            entry(LocalDate.of(2026, 9, 25), 9, "I went for a walk"),
+            entry(LocalDate.of(2026, 9, 25), 10, "I'm glad I did"),
+        )
+        val paragraph = StoryComposer.compose(entries, LocalDate.of(2026, 9, 25))
+            .chapters.single().paragraphs.single()
+        assertTrue(paragraph.contains("Later, I went for a walk."))
+        assertTrue(paragraph.contains("Later, I'm glad I did."))
+        assertTrue(!paragraph.contains(" i "))
+    }
+
+    @Test
+    fun `proper nouns keep their capital after a connective`() {
+        val entries = listOf(
+            entry(LocalDate.of(2026, 9, 25), 8, "quiet start"),
+            entry(LocalDate.of(2026, 9, 25), 9, "Sam came by"),
+            entry(LocalDate.of(2026, 9, 25), 10, "Google announced layoffs"),
+        )
+        val paragraph = StoryComposer.compose(entries, LocalDate.of(2026, 9, 25))
+            .chapters.single().paragraphs.single()
+        assertTrue(paragraph.contains("Later, Sam came by."))
+        assertTrue(paragraph.contains("Later, Google announced layoffs."))
+    }
+
+    @Test
+    fun `safe closed-class words lowercase after a connective`() {
+        val entries = listOf(
+            entry(LocalDate.of(2026, 9, 25), 8, "a slow morning"),
+            entry(LocalDate.of(2026, 9, 25), 9, "The sun came out"),
+            entry(LocalDate.of(2026, 9, 25), 10, "It stayed all day"),
+        )
+        val paragraph = StoryComposer.compose(entries, LocalDate.of(2026, 9, 25))
+            .chapters.single().paragraphs.single()
+        assertTrue(paragraph.contains("Later, the sun came out."))
+        assertTrue(paragraph.contains("Later, it stayed all day."))
     }
 
     @Test
@@ -95,6 +175,39 @@ class StoryComposerTest {
     }
 
     @Test
+    fun `terminal punctuation inside a closing quote is not doubled`() {
+        val entries = listOf(
+            entry(LocalDate.of(2026, 9, 25), 9, "she said \"go.\""),
+            entry(LocalDate.of(2026, 9, 25), 9, "it ended (finally!)"),
+            entry(LocalDate.of(2026, 9, 25), 9, "read the note [page 2?]"),
+        )
+        val paragraph = StoryComposer.compose(entries, LocalDate.of(2026, 9, 25))
+            .chapters.single().paragraphs.single()
+        assertTrue(paragraph.contains("\"go.\""))
+        assertTrue(paragraph.contains("(finally!)"))
+        assertTrue(paragraph.contains("[page 2?]"))
+        assertTrue(!paragraph.contains("\"."))
+        assertTrue(!paragraph.contains(")."))
+        assertTrue(!paragraph.contains("]."))
+    }
+
+    @Test
+    fun `leading quote capitalizes the quoted word not the quote`() {
+        val entries = listOf(entry(LocalDate.of(2026, 9, 25), 9, "\"the end is near\" he said"))
+        val paragraph = StoryComposer.compose(entries, LocalDate.of(2026, 9, 25))
+            .chapters.single().paragraphs.single()
+        assertTrue(paragraph.contains("\"The end is near\" he said."))
+    }
+
+    @Test
+    fun `markdown leading chars survive sentence casing`() {
+        val entries = listOf(entry(LocalDate.of(2026, 9, 25), 9, "# a heading"))
+        val paragraph = StoryComposer.compose(entries, LocalDate.of(2026, 9, 25))
+            .chapters.single().paragraphs.single()
+        assertTrue(paragraph.contains("# A heading."))
+    }
+
+    @Test
     fun `current week chapter is ongoing and past week is not`() {
         val entries = listOf(
             entry(LocalDate.of(2026, 9, 18), 9, "last week"),
@@ -129,7 +242,7 @@ class StoryComposerTest {
         )
         val story = StoryComposer.compose(entries, LocalDate.of(2026, 9, 25))
         val paragraph = story.chapters.single().paragraphs.single()
-        assertTrue(paragraph.indexOf("First.") < paragraph.indexOf("Later, second."))
+        assertTrue(paragraph.indexOf("First.") < paragraph.indexOf("That evening, second."))
     }
 
     @Test

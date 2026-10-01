@@ -1,6 +1,7 @@
 package com.chronicle.app.domain
 
 import java.time.DayOfWeek
+import java.time.Duration
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -101,16 +102,22 @@ object StoryComposer {
             "the ${ordinalWords(day.dayOfMonth)} of " +
             day.format(DateTimeFormatter.ofPattern("MMMM", Locale.ENGLISH)) + ","
 
-        val sentences = entries
-            .map { it.transcript.trim() }
-            .filter { it.isNotEmpty() }
-            .mapIndexed { index, text ->
-                val clean = ensureSentence(text)
-                when {
-                    index == 0 -> clean
-                    else -> "Later, ${clean.replaceFirstChar { it.lowercase() }}"
+        val cleaned = entries
+            .mapNotNull { entry ->
+                val text = entry.transcript.trim()
+                if (text.isEmpty()) null else entry to ensureSentence(text)
+            }
+
+        val sentences = cleaned.mapIndexed { index, (entry, clean) ->
+            if (index == 0) {
+                clean
+            } else {
+                when (val connective = connectiveAfter(cleaned[index - 1].first, entry)) {
+                    null -> clean
+                    else -> "$connective ${decapitalizeForConnective(entry.transcript, clean)}"
                 }
             }
+        }
 
         return if (sentences.isEmpty()) {
             "$opener the day was kept in silence."
@@ -119,15 +126,116 @@ object StoryComposer {
         }
     }
 
+    /**
+     * Picks a connective for a later same-day entry, or null when the entries
+     * are close enough that a bare sentence reads better.
+     * - >3h gap: a time-aware beat — "That evening," / "Later that day," /
+     *   "Earlier," when timestamps went backwards inside the day group.
+     * - ≥45m: a light "Later,".
+     * - below that: no connective.
+     */
+    private fun connectiveAfter(prev: JournalEntry, current: JournalEntry): String? {
+        val gapMinutes = Duration.between(prev.createdAt, current.createdAt)
+            .toMinutes().coerceAtLeast(0)
+        if (gapMinutes > LONG_GAP_MINUTES) {
+            val hour = current.createdAt.hour
+            return when {
+                hour < prev.createdAt.hour -> "Earlier,"
+                hour >= EVENING_HOUR -> "That evening,"
+                else -> "Later that day,"
+            }
+        }
+        return if (gapMinutes >= SHORT_GAP_MINUTES) "Later," else null
+    }
+
+    /**
+     * Lowercases the first letter of [clean] for use after a connective — but
+     * only when safe. The original transcript decides: a word the writer typed
+     * lowercase may be restored to lowercase, and closed-class words
+     * ("the", "and", "it"…) may be lowered even when capitalized. Capitalized
+     * words outside the safe list — proper nouns like "Sam" or "Google", and
+     * every I-form — keep their case.
+     */
+    private fun decapitalizeForConnective(original: String, clean: String): String {
+        val word = firstWord(original)
+        if (word.isEmpty()) return clean
+        // Never decapitalize I, I'm, I've, I'd, I'll — straight or curly quote.
+        if (word.equals("i", ignoreCase = true) ||
+            word.startsWith("i'", ignoreCase = true) ||
+            word.startsWith("i’", ignoreCase = true)
+        ) {
+            return clean
+        }
+        val mayLower = word.first().isLowerCase() ||
+            word.lowercase(Locale.ROOT) in CONNECTIVE_LOWERCASE_OK
+        if (!mayLower) return clean
+        // Lower the first letter, skipping any leading quote/bracket.
+        val idx = clean.indexOfFirst { it.isLetter() }
+        return if (idx < 0) {
+            clean
+        } else {
+            clean.substring(0, idx) + clean[idx].lowercaseChar() + clean.substring(idx + 1)
+        }
+    }
+
+    /** The first run of letters (apostrophes allowed inside), past any opener. */
+    private fun firstWord(text: String): String {
+        val t = text.trimStart()
+        val start = t.indexOfFirst { it.isLetter() }
+        if (start < 0) return ""
+        var end = start + 1
+        while (end < t.length &&
+            (t[end].isLetter() || t[end] == '\'' || t[end] == '’')
+        ) {
+            end++
+        }
+        return t.substring(start, end)
+    }
+
     private fun ensureSentence(text: String): String {
         var t = text.trim()
-        t = t.replaceFirstChar { it.uppercase() }
-        if (!t.endsWith(".") && !t.endsWith("!") && !t.endsWith("?")) t += "."
+        // Capitalize the first letter — inside a leading quote/bracket too,
+        // so `"hello'` becomes `"Hello'` rather than uppercasing the quote.
+        val first = t.indexOfFirst { it.isLetter() }
+        if (first >= 0) {
+            t = t.substring(0, first) + t[first].uppercaseChar() + t.substring(first + 1)
+        }
+        // Append a period unless the text already ends in terminal punctuation,
+        // possibly followed by a closing quote/paren/bracket (`go."` is done).
+        if (!endsTerminal(t)) t += "."
         return t
+    }
+
+    /** True when the last real char is `.`, `!`, `?` or `…`, past closers. */
+    private fun endsTerminal(t: String): Boolean {
+        var i = t.length - 1
+        while (i >= 0 && t[i] in CLOSING_AFTER_TERMINAL) i--
+        return i >= 0 && t[i] in TERMINAL_CHARS
     }
 
     private fun wordCount(text: String): Int =
         text.split(Regex("""\s+""")).count { it.isNotBlank() }
+
+    /** Same-day gap that earns a time-aware connective instead of "Later,". */
+    private const val LONG_GAP_MINUTES = 3L * 60
+    /** Below this, consecutive entries are stitched without a connective. */
+    private const val SHORT_GAP_MINUTES = 45L
+    private const val EVENING_HOUR = 18
+
+    private const val TERMINAL_CHARS = ".!?…"
+    /** Closers that may follow terminal punctuation: quotes, parens, brackets. */
+    private const val CLOSING_AFTER_TERMINAL = "\"'’”)]}"
+
+    /**
+     * Closed-class words safe to decapitalize after a connective even when the
+     * writer capitalized them. Proper nouns and I-forms are never in here.
+     */
+    private val CONNECTIVE_LOWERCASE_OK = setOf(
+        "a", "an", "the",
+        "and", "but", "or", "so", "then",
+        "it", "we", "they", "he", "she",
+        "my", "our",
+    )
 
     private val ONES = listOf(
         "first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth",
