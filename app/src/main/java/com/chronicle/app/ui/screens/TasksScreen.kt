@@ -5,302 +5,355 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.chronicle.app.R
 import com.chronicle.app.data.db.TaskEntity
-import com.chronicle.app.ui.components.AccentAction
-import com.chronicle.app.ui.components.ChronicleIcon
-import com.chronicle.app.ui.components.Hairline
-import com.chronicle.app.ui.components.Masthead
-import com.chronicle.app.ui.components.MetaText
-import com.chronicle.app.ui.theme.ChronicleExtras
+import com.chronicle.app.ui.design.Chron
+import com.chronicle.app.ui.design.ChoicePill
+import com.chronicle.app.ui.design.CircleCheck
+import com.chronicle.app.ui.design.FrostedTextField
+import com.chronicle.app.ui.design.GlassSurface
+import com.chronicle.app.ui.design.Hairline
+import com.chronicle.app.ui.design.LargeActionCircle
+import com.chronicle.app.ui.design.LocalBottomBarPadding
+import com.chronicle.app.ui.design.Radius
+import com.chronicle.app.ui.design.Spacing
+import com.chronicle.app.ui.design.SurfaceLevel
+import com.chronicle.app.ui.design.SwipeToDeleteRow
 import com.chronicle.app.ui.theme.ChronicleMotion
 import com.chronicle.app.ui.vm.ReminderChoice
 import com.chronicle.app.ui.vm.TasksViewModel
 import com.chronicle.app.ui.vm.asLocalDateTime
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TasksScreen(viewModel: TasksViewModel) {
     val state by viewModel.state.collectAsState()
+    val p = Chron.palette
+    val type = Chron.type
     val haptics = LocalHapticFeedback.current
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var fieldFocused by remember { mutableStateOf(false) }
+    // Rows mid-completion: checked look now, move to Done after the beat.
+    var completing by remember { mutableStateOf(setOf<Long>()) }
+
     val notifPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { }
 
+    fun submit() {
+        if (state.draft.isBlank()) return
+        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        // Ask for notifications at the moment a reminder is being set.
+        if (state.draftReminder != ReminderChoice.NONE &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        viewModel.addTask()
+    }
+
+    fun toggle(task: TaskEntity) {
+        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        if (task.done) {
+            viewModel.toggleDone(task)
+        } else if (task.id !in completing) {
+            // Let the check fill and the title strike through first.
+            completing = completing + task.id
+            scope.launch {
+                delay(350)
+                completing = completing - task.id
+                viewModel.toggleDone(task)
+            }
+        }
+    }
+
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            start = 28.dp, end = 28.dp, top = 20.dp, bottom = 48.dp,
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .imePadding(),
+        contentPadding = PaddingValues(
+            start = Spacing.screenMargin, end = Spacing.screenMargin,
+            top = Spacing.x4, bottom = LocalBottomBarPadding.current,
         ),
     ) {
         item {
-            Masthead(kicker = "Pulled from your words", title = "Intentions")
-            Spacer(Modifier.height(24.dp))
-            NewTaskRow(
-                draft = state.draft,
-                choice = state.draftReminder,
-                adding = state.adding,
-                onDraft = viewModel::setDraft,
-                onChoice = viewModel::setReminderChoice,
-                onAdd = {
-                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    // Ask for notifications at the moment a reminder is being set.
-                    if (state.draftReminder != ReminderChoice.NONE &&
-                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                        ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.POST_NOTIFICATIONS,
-                        ) != PackageManager.PERMISSION_GRANTED
-                    ) {
-                        notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    }
-                    viewModel.addTask()
-                },
+            Text(
+                text = "Intentions",
+                style = type.title,
+                color = p.textPrimary,
+                modifier = Modifier.semantics { heading() },
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "What you mean to do.",
+                style = type.serifItalic,
+                color = p.textSecondary,
+            )
+            Spacer(Modifier.height(Spacing.x6))
+        }
+
+        // ————— Add —————
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                FrostedTextField(
+                    value = state.draft,
+                    onChange = viewModel::setDraft,
+                    placeholder = "Add an intention…",
+                    singleLine = true,
+                    minHeight = 52.dp,
+                    onFocusChange = { fieldFocused = it },
+                    imeAction = ImeAction.Done,
+                    onImeAction = { submit() },
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(12.dp))
+                LargeActionCircle(
+                    icon = R.drawable.ic_plus,
+                    contentDescription = "Add intention",
+                    onClick = { submit() },
+                    size = 48.dp,
+                    enabled = state.draft.isNotBlank() && !state.adding,
+                )
+            }
+            AnimatedVisibility(
+                visible = fieldFocused || state.draft.isNotBlank(),
+                enter = fadeIn(tween(ChronicleMotion.MICRO)) +
+                    expandVertically(tween(ChronicleMotion.MICRO)),
+                exit = fadeOut(tween(ChronicleMotion.MICRO)) +
+                    shrinkVertically(tween(ChronicleMotion.MICRO)),
+            ) {
+                FlowRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ReminderChoice.entries.forEach { choice ->
+                        ChoicePill(
+                            label = choice.label,
+                            selected = choice == state.draftReminder,
+                            onClick = {
+                                viewModel.setReminderChoice(
+                                    if (choice == state.draftReminder) ReminderChoice.NONE else choice,
+                                )
+                            },
+                        )
+                    }
+                }
+            }
         }
 
         if (state.open.isEmpty() && state.done.isEmpty()) {
             item {
-                Spacer(Modifier.height(60.dp))
+                Spacer(Modifier.height(80.dp))
                 Text(
-                    "Nothing to hold you to yet.",
-                    style = MaterialTheme.typography.headlineSmall,
+                    text = "Nothing you mean to do, yet.",
+                    style = type.headline,
+                    color = p.textPrimary,
                 )
-                Spacer(Modifier.height(8.dp))
-                MetaText("Say \"remind me to…\" while recording, or write it here")
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = "Say \u201Cremind me to…\u201D on Today, or add one here.",
+                    style = type.body,
+                    color = p.textSecondary,
+                )
             }
         }
 
-        items(state.open, key = { it.id }) { task ->
-            TaskRow(
-                modifier = Modifier.animateItem(),
-                task = task,
-                onToggle = {
-                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    viewModel.toggleDone(task)
-                },
-                onDelete = { viewModel.delete(task) },
-            )
-            Hairline()
+        // ————— Open: one frosted surface, hairlines between rows —————
+        if (state.open.isNotEmpty()) {
+            item(key = "open-card") {
+                Column(Modifier.animateItem()) {
+                    Spacer(Modifier.height(Spacing.x8))
+                    GlassSurface(
+                        level = SurfaceLevel.Frosted,
+                        shape = RoundedCornerShape(Radius.md),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.fillMaxWidth()) {
+                            state.open.forEachIndexed { index, task ->
+                                SwipeToDeleteRow(
+                                    onDelete = { viewModel.delete(task) },
+                                ) {
+                                    IntentionRow(
+                                        task = task,
+                                        visuallyDone = task.id in completing,
+                                        onToggle = { toggle(task) },
+                                        onDelete = { viewModel.delete(task) },
+                                    )
+                                }
+                                if (index < state.open.lastIndex) Hairline()
+                            }
+                        }
+                    }
+                }
+            }
         }
 
+        // ————— Done: floating label, rows plainly on the mist —————
         if (state.done.isNotEmpty()) {
-            item {
-                Spacer(Modifier.height(28.dp))
-                MetaText("Done")
-                Spacer(Modifier.height(10.dp))
+            item(key = "done-label") {
+                Text(
+                    text = "Done",
+                    style = type.section,
+                    color = p.textSecondary,
+                    modifier = Modifier
+                        .animateItem()
+                        .padding(top = Spacing.x8, bottom = Spacing.x2),
+                )
             }
             items(state.done, key = { "done-${it.id}" }) { task ->
-                TaskRow(
-                    modifier = Modifier.animateItem(),
-                    task = task,
-                    onToggle = { viewModel.toggleDone(task) },
+                SwipeToDeleteRow(
                     onDelete = { viewModel.delete(task) },
-                )
-                Hairline()
-            }
-        }
-    }
-}
-
-@Composable
-private fun NewTaskRow(
-    draft: String,
-    choice: ReminderChoice,
-    adding: Boolean,
-    onDraft: (String) -> Unit,
-    onChoice: (ReminderChoice) -> Unit,
-    onAdd: () -> Unit,
-) {
-    Column(Modifier.fillMaxWidth()) {
-        BasicTextField(
-            value = draft,
-            onValueChange = onDraft,
-            textStyle = MaterialTheme.typography.bodyLarge.copy(
-                color = MaterialTheme.colorScheme.onSurface,
-            ),
-            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-            decorationBox = { inner ->
-                Box {
-                    if (draft.isEmpty()) {
-                        Text(
-                            "An intention, plainly put…",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = ChronicleExtras.faint,
-                        )
-                    }
-                    inner()
-                }
-            },
-        )
-        Spacer(Modifier.height(12.dp))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-        ) {
-            ReminderChoice.entries.forEach { c ->
-                val selected = c == choice
-                Box(
-                    modifier = Modifier
-                        .clip(MaterialTheme.shapes.small)
-                        .border(
-                            1.dp,
-                            if (selected) MaterialTheme.colorScheme.primary else ChronicleExtras.hairline,
-                            MaterialTheme.shapes.small,
-                        )
-                        .selectable(selected = selected) {
-                            onChoice(if (selected) ReminderChoice.NONE else c)
-                        }
-                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                    modifier = Modifier.animateItem(),
                 ) {
-                    MetaText(
-                        text = c.label,
-                        color = if (selected) MaterialTheme.colorScheme.primary else ChronicleExtras.faint,
+                    IntentionRow(
+                        task = task,
+                        visuallyDone = true,
+                        onToggle = { toggle(task) },
+                        onDelete = { viewModel.delete(task) },
                     )
                 }
             }
         }
-        Spacer(Modifier.height(14.dp))
-        Hairline()
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            AccentAction(label = "Set", onClick = onAdd, enabled = draft.isNotBlank() && !adding)
-        }
     }
 }
 
 @Composable
-private fun TaskRow(
+private fun IntentionRow(
     task: TaskEntity,
+    visuallyDone: Boolean,
     onToggle: () -> Unit,
     onDelete: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
+    val p = Chron.palette
+    val type = Chron.type
+    val done = task.done || visuallyDone
+    val titleColor by animateColorAsState(
+        targetValue = if (done) p.textTertiary else p.textPrimary,
+        animationSpec = tween(ChronicleMotion.MICRO, easing = ChronicleMotion.StandardEasing),
+        label = "title",
+    )
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 16.dp),
-    ) {
-        // The ring that completes.
-        val ringColor by animateColorAsState(
-            targetValue = if (task.done) MaterialTheme.colorScheme.primary else ChronicleExtras.faint,
-            animationSpec = tween(ChronicleMotion.MICRO, easing = ChronicleMotion.StandardEasing),
-            label = "ring",
-        )
-        val ringFill by animateColorAsState(
-            targetValue = if (task.done) MaterialTheme.colorScheme.primary
-            else androidx.compose.ui.graphics.Color.Transparent,
-            animationSpec = tween(ChronicleMotion.MICRO, easing = ChronicleMotion.StandardEasing),
-            label = "ringFill",
-        )
-        Box(
-            modifier = Modifier
-                .size(22.dp)
-                .minimumInteractiveComponentSize()
-                .clip(CircleShape)
-                .border(1.dp, ringColor, CircleShape)
-                .background(ringFill)
-                .clickable(onClick = onToggle),
-            contentAlignment = Alignment.Center,
-        ) {
-            androidx.compose.animation.AnimatedVisibility(
-                visible = task.done,
-                enter = androidx.compose.animation.scaleIn(
-                    tween(ChronicleMotion.MICRO, easing = ChronicleMotion.StandardEasing),
-                    initialScale = 0.5f,
-                ) + fadeIn(tween(ChronicleMotion.MICRO)),
-                exit = fadeOut(tween(ChronicleMotion.MICRO)),
-            ) {
-                ChronicleIcon(
-                    R.drawable.ic_check, "Done",
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(12.dp),
+            .heightIn(min = 56.dp)
+            .semantics {
+                customActions = listOf(
+                    CustomAccessibilityAction("Delete intention") { onDelete(); true },
                 )
             }
-        }
-        Spacer(Modifier.width(16.dp))
+            .padding(horizontal = Spacing.x4, vertical = 8.dp),
+    ) {
+        CircleCheck(
+            checked = done,
+            contentDescription = if (done) "Mark not done" else "Mark done",
+            onToggle = onToggle,
+        )
+        Spacer(Modifier.width(6.dp))
         Column(Modifier.weight(1f)) {
-            val titleColor by animateColorAsState(
-                targetValue = if (task.done) ChronicleExtras.faint else MaterialTheme.colorScheme.onSurface,
-                animationSpec = tween(ChronicleMotion.ENTER, easing = ChronicleMotion.StandardEasing),
-                label = "title",
-            )
             Text(
                 text = task.title,
-                style = MaterialTheme.typography.bodyLarge,
+                style = type.body,
                 color = titleColor,
-                textDecoration = if (task.done) TextDecoration.LineThrough else null,
+                textDecoration = if (done) TextDecoration.LineThrough else null,
             )
-            task.remindAt?.let { ms ->
+            val meta = buildList {
+                task.remindAt?.let { add(formatReminder(it)) }
+                if (task.sourceEntryId != null) add("From your journal")
+            }
+            if (meta.isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    ChronicleIcon(
-                        R.drawable.ic_bell, null,
-                        tint = if (task.done) ChronicleExtras.faint else MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(11.dp),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    MetaText(
-                        text = ms.asLocalDateTime()
-                            .format(DateTimeFormatter.ofPattern("EEE d MMM · HH:mm", Locale.ENGLISH)),
-                        color = if (task.done) ChronicleExtras.faint else MaterialTheme.colorScheme.primary,
+                    if (task.remindAt != null) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_clock),
+                            contentDescription = null,
+                            tint = p.textTertiary,
+                            modifier = Modifier.size(12.dp),
+                        )
+                        Spacer(Modifier.width(5.dp))
+                    }
+                    Text(
+                        text = meta.joinToString(" · "),
+                        style = type.meta,
+                        color = p.textTertiary,
                     )
                 }
             }
         }
-        ChronicleIcon(
-            R.drawable.ic_close, "Remove",
-            tint = ChronicleExtras.faint,
-            modifier = Modifier
-                .size(16.dp)
-                .minimumInteractiveComponentSize()
-                .clickable(onClick = onDelete),
-        )
+    }
+}
+
+private fun formatReminder(ms: Long): String {
+    val at = ms.asLocalDateTime()
+    val today = LocalDate.now()
+    val time = at.format(DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH))
+    return when (at.toLocalDate()) {
+        today -> "Today · $time"
+        today.plusDays(1) -> "Tomorrow · $time"
+        else -> at.format(DateTimeFormatter.ofPattern("EEE d MMM · HH:mm", Locale.ENGLISH))
     }
 }

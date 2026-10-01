@@ -1,5 +1,10 @@
 appId: com.chronicle.app
 ---
-- tapOn: "Don.t allow"
-- assertVisible: 'TAP · SPEAK YOUR DAY'
+- waitForAnimationToEnd
+- tapOn:
+    text: 'Don.t allow'
+    optional: true
+- tapOn: '^Record$'
+- tapOn: 'Don.t allow'
+- assertVisible: 'Tap to speak your day'
 - takeScreenshot: e4-after-deny

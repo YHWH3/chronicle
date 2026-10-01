@@ -1,23 +1,31 @@
 appId: com.chronicle.app
 ---
-- tapOn:
-    point: "13%,93%"
-- tapOn: "Details"
-- assertVisible: "The quiet particulars"
-- assertVisible: "THE MIND — WORDS INTO MEANING"
-- assertVisible: "QUIET PARSER"
-- assertVisible: "ON-DEVICE MODEL"
-- assertVisible: "OPENROUTER"
-- assertVisible: "CUSTOM ENDPOINT"
-- assertVisible: "A deterministic reader — fast, private, no model needed."
-- tapOn: "ON-DEVICE MODEL"
-- assertVisible: "Llama 3.2 3B runs entirely on this phone. Words never leave."
-- assertVisible: "Llama 3.2 3B · on-device mind"
-- assertVisible: "~2 GB"
-- assertVisible: ".*accept Meta's licence on huggingface.co[\\s\\S]*"
-- assertVisible: "GET IT"
+- waitForAnimationToEnd
+# Mind settings: option cards; "On-device model" reveals a model status row.
+- tapOn: 'Settings'
+- assertVisible: 'The quiet particulars\.'
+- tapOn: 'The Mind'
+- assertVisible: 'How your words become intentions\.'
+- assertVisible: '^Quiet parser$'
+- assertVisible: '^On-device model$'
+- assertVisible: '^OpenRouter$'
+- assertVisible: 'Finds reminders with simple rules. Instant\.'
+- tapOn: '^On-device model$'
+- assertVisible: '^Llama 3.2 3B$'
+- assertVisible: 'Until it''s installed, Chronicle uses the Quiet parser\.'
+- tapOn: '^Llama 3.2 3B$'
+- assertVisible: 'An on-device mind that reads your entries\.'
+- assertVisible: '≈ 2 GB'
+# A previous run may have left the model in Failed state → "Try again".
+- assertVisible: '(Download · 2 GB|Try again)'
+- assertVisible: 'Download source'
 - takeScreenshot: tc11-ondevice
-- tapOn: "GET IT"
-- assertVisible: "CANCEL"
+# The emulator's HF download can fail fast (chain validation) — tolerate
+# the Failed/"Try again" terminal state alongside the clean Cancel path.
+- tapOn: '(Download · 2 GB|Try again)'
+- assertVisible: '(Cancel|Try again)'
 - takeScreenshot: tc11-llm-downloading
-- tapOn: "CANCEL"
+- tapOn:
+    text: 'Cancel'
+    optional: true
+- assertVisible: '(Download · 2 GB|Try again)'

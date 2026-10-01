@@ -1,11 +1,27 @@
 appId: com.chronicle.app
 ---
+# Llama model page: collapsible source row + download/cancel cycle.
+# The emulator's HF download fails fast (chain validation), so tolerate
+# the Failed/"Try again" terminal state alongside the clean path.
+- waitForAnimationToEnd
+- tapOn: 'Settings'
+- tapOn: 'The Mind'
+- tapOn: '^On-device model$'
+- tapOn: '^Llama 3.2 3B$'
 - scrollUntilVisible:
-    element: "The Llama download is gated.*"
+    element: 'Download source'
     direction: down
-- assertVisible: "The Llama download is gated — accept Meta's licence on huggingface.co, then paste the .task link here."
+- tapOn: 'Edit'
+- assertVisible: 'The Llama download is licence-gated — accept Meta''s licence on huggingface.co, then paste the .task link here\.'
+- assertVisible: 'https://huggingface.co[\s\S]*'
 - takeScreenshot: tc11-ondevice
-- tapOn: "GET IT"
-- assertVisible: "CANCEL"
+- scrollUntilVisible:
+    element: '(Download · 2 GB|Try again)'
+    direction: up
+- tapOn: '(Download · 2 GB|Try again)'
+- assertVisible: '(Cancel|Try again)'
 - takeScreenshot: tc11-llm-downloading
-- tapOn: "CANCEL"
+- tapOn:
+    text: 'Cancel'
+    optional: true
+- assertVisible: '(Download · 2 GB|Try again)'

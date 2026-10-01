@@ -1,15 +1,19 @@
 appId: com.chronicle.app
 ---
-- launchApp
-- assertVisible: "SAT · 26 SEP"
+- waitForAnimationToEnd
+# Date chip: "EEE · d MMM" rendered in meta (sentence case), e.g. "Mon · 28 Sep".
+- assertVisible: '[A-Z][a-z]{2} · [0-9]{1,2} [A-Z][a-z]{2}'
+# Serif greeting is two nodes: "Good" / "evening." — match either.
 - assertVisible:
-    text: "(?i)(a quiet hour|good morning|good afternoon|good evening)\\."
-- assertVisible: "What happened today?"
-- assertVisible: "Details"
-- assertVisible: "SPEAK"
-- assertVisible: "WRITE"
-- assertVisible: "TAP · SPEAK YOUR DAY"
-- assertVisible: "TODAY"
-- assertVisible: "JOURNAL"
-- assertVisible: "STORY"
-- assertVisible: "INTENTIONS"
+    text: '(?i)^(a quiet|good|hour\.|morning\.|afternoon\.|evening\.)$'
+- assertVisible: 'What happened today\?'
+# Gear icon contentDescription is "Settings".
+- assertVisible: 'Settings'
+# Speak/Write mode pills (sentence case).
+- assertVisible: '^Speak$'
+- assertVisible: '^Write$'
+- assertVisible: 'Tap to speak your day'
+- assertVisible: '^Today$'
+- assertVisible: '^Journal$'
+- assertVisible: '^Story$'
+- assertVisible: '^Intentions$'

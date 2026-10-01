@@ -1,8 +1,8 @@
 appId: com.chronicle.app
 ---
-- hideKeyboard
-- tapOn:
-    point: "82%,93%"
+# Variant of tc12's tail: Stretch task survives a cold relaunch.
+- waitForAnimationToEnd
+- tapOn: '^Intentions$'
 - assertVisible: 'Stretch'
-- assertVisible: 'SAT 26 SEP · 09:00'
+- assertVisible: '(Today|Tomorrow) · 09:00[\s\S]*'
 - takeScreenshot: tc12-stretch

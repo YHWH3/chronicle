@@ -1,24 +1,28 @@
 appId: com.chronicle.app
 ---
+# fix5 variant: nudge switch only, then the manual-task check.
+- waitForAnimationToEnd
+- tapOn: 'Settings'
+- tapOn: 'Daily nudge'
 - tapOn:
-    point: "87%,40%"
+    point: '84%,26%'
 - assertVisible: '07:00'
 - assertVisible: '21:30'
 - takeScreenshot: fix5-nudge-chips
 - tapOn:
-    point: "87%,40%"
+    point: '84%,26%'
 - assertNotVisible: '07:00'
 - takeScreenshot: fix5-nudge-off
-- pressKey: Back
-- tapOn:
-    point: "82%,93%"
-- tapOn: 'An intention, plainly put…'
+- pressKey: back
+- pressKey: back
+- tapOn: '^Intentions$'
+- tapOn: 'Add an intention…'
 - inputText: 'mop the hallway'
+- tapOn: '^Tonight$'
+- tapOn: '^Add intention$'
 - scrollUntilVisible:
-    element: 'TONIGHT'
-    direction: left
-- tapOn: 'TONIGHT'
-- tapOn: 'SET'
-- assertVisible: 'Mop the hallway'
-- assertVisible: 'SAT 26 SEP · 20:00'
+    element: 'mop the hallway'
+    direction: down
+- assertVisible: 'mop the hallway'
+- assertVisible: '(Today|Tomorrow) · 20:00[\s\S]*'
 - takeScreenshot: fix5-manual-task

@@ -98,7 +98,10 @@ class ModelStore(private val context: Context) {
             coroutineContext.ensureActive()
             if (isArchive(fileName)) {
                 set(kind, ModelState.Extracting)
-                unpack(tmp, packDir)
+                // unpack runs decompression + tar I/O — keep it off the
+                // caller's dispatcher (install is launched on the main
+                // scope, so this would otherwise freeze the UI).
+                withContext(Dispatchers.IO) { unpack(tmp, packDir) }
                 tmp.delete()
             } else {
                 tmp.renameTo(File(packDir, fileName))

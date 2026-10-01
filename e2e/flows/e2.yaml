@@ -1,12 +1,13 @@
 appId: com.chronicle.app
 ---
-- tapOn:
-    point: "13%,93%"
+- waitForAnimationToEnd
+# Double-tap KEEP safeguard: exactly one entry is created.
+- tapOn: '^Write$'
 - tapOn: 'Begin anywhere. The day will shape itself.'
 - inputText: 'testing a double tap safeguard'
-- doubleTapOn: 'KEEP'
+- doubleTapOn: '^Keep$'
+- assertVisible: 'Kept\.'
 - takeScreenshot: e2-after-doubletap
-- hideKeyboard
-- tapOn:
-    point: "35%,93%"
+- tapOn: '^Journal$'
+- assertVisible: 'testing a double tap safeguard'
 - takeScreenshot: e2-journal

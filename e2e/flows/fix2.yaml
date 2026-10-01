@@ -1,15 +1,16 @@
 appId: com.chronicle.app
 ---
-- pressKey: Back
-- tapOn:
-    point: "82%,93%"
-- assertVisible: 'NO REMINDER'
-- assertVisible: 'IN AN HOUR'
-- assertVisible: 'TONIGHT'
+- waitForAnimationToEnd
+# Reminder pills now wrap in a FlowRow — all four visible once the field
+# is focused, no horizontal scroll needed.
+- tapOn: '^Intentions$'
+- tapOn: 'Add an intention…'
+- inputText: 'x'
+- assertVisible: 'No reminder'
+- assertVisible: 'In an hour'
+- assertVisible: 'Tonight'
+- assertVisible: 'Tomorrow'
 - takeScreenshot: fix2-chips-initial
-- scrollUntilVisible:
-    element: 'TOMORROW'
-    direction: left
-- takeScreenshot: fix2-chips-scrolled
-- tapOn: 'TOMORROW'
+- tapOn: '^Tomorrow$'
 - takeScreenshot: fix2-tomorrow-picked
+- hideKeyboard

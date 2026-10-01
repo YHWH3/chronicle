@@ -1,13 +1,15 @@
 appId: com.chronicle.app
 ---
-- tapOn:
-    point: "40%,33%"
-- eraseText: 10
+- waitForAnimationToEnd
+# Variant: type then erase — empty KEEP must still be a no-op.
+- tapOn: '^Write$'
+- tapOn: 'Begin anywhere. The day will shape itself.'
+- inputText: 'temporary'
+- eraseText: 9
 - assertVisible: 'Begin anywhere. The day will shape itself.'
 - takeScreenshot: e1-empty-keep-before
-- tapOn: 'KEEP'
+- tapOn: '^Keep$'
 - takeScreenshot: e1-empty-keep-after
 - hideKeyboard
-- tapOn:
-    point: "35%,93%"
+- tapOn: '^Journal$'
 - takeScreenshot: e1-journal-after

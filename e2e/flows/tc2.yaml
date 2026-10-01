@@ -1,11 +1,17 @@
 appId: com.chronicle.app
 ---
-- launchApp
-- tapOn: "WRITE"
-- assertVisible: "Begin anywhere. The day will shape itself."
-- tapOn: "Begin anywhere. The day will shape itself."
-- inputText: "walked the coast road, cold wind"
-- assertVisible: "walked the coast road, cold wind"
-- tapOn: "KEEP"
-- assertVisible: "KEPT."
-- assertVisible: "EARLIER TODAY"
+- waitForAnimationToEnd
+- tapOn: '^Write$'
+- assertVisible: 'Begin anywhere. The day will shape itself.'
+- tapOn: 'Begin anywhere. The day will shape itself.'
+- inputText: 'walked the coast road, cold wind'
+- assertVisible: 'walked the coast road, cold wind'
+- tapOn: '^Keep$'
+- assertVisible: 'Kept\.'
+- assertVisible: 'Saved to your journal\.'
+- assertVisible: 'Read by Quiet parser'
+# Back to idle; the Earlier-today card (SPEAK mode only) must list the entry.
+- tapOn: 'Add another'
+- tapOn: '^Speak$'
+- assertVisible: 'Earlier today'
+- assertVisible: 'walked the coast road, cold wind'
