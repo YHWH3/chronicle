@@ -78,9 +78,28 @@ object TaskExtractor {
         Regex("""\b(?:end of (?:the )?(?:working )?day|eod|close of business)\b""", RegexOption.IGNORE_CASE) to DayPhrase(0, LocalTime.of(17, 0)),
     )
 
+    private val SENTENCE_SPLIT = Regex("""[.!?\n;]+""")
+
+    /**
+     * Rewrites spoken punctuation into forms the sentence split can't destroy:
+     * - "a.m."/"p.m." (and "a.m" without the trailing dot) → "am"/"pm"
+     * - decimal times "5.30pm"/"5.30 p.m." → "5:30 pm" — only when a meridian
+     *   follows, so plain decimals ("2.5 litres") are left alone.
+     * Applied to the raw transcript BEFORE it is split on `[.!?\n;]+`.
+     */
+    private fun normalizeTranscript(raw: String): String {
+        var t = raw
+        t = t.replace(Regex("""\b([aApP])\s*\.\s*[mM]\s*\.?"""), "$1m")
+        t = t.replace(
+            Regex("""\b(\d{1,2})\.(\d{2})\s*([aApP][mM])\b"""),
+            "$1:$2 $3",
+        )
+        return t
+    }
+
     fun extract(transcript: String, now: LocalDateTime): List<ExtractedTask> {
-        val sentences = transcript
-            .split(Regex("""[.!?\n;]+"""))
+        val sentences = normalizeTranscript(transcript)
+            .split(SENTENCE_SPLIT)
             .map { it.trim() }
             .filter { it.isNotEmpty() }
 

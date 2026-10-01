@@ -232,4 +232,36 @@ class TaskExtractorTest {
     fun `time phrase without intent is not a task`() {
         assertTrue(TaskExtractor.extract("The meeting is at 5pm.", friday9am).isEmpty())
     }
+
+    // ————— BE-05: meridians must survive the sentence split —————
+
+    @Test
+    fun `dotted am and pm survive sentence splitting`() {
+        // Splitting on "." destroys "a.m." — it must be normalized before the split.
+        assertEquals(
+            LocalDateTime.of(2026, 9, 26, 7, 0),
+            TaskExtractor.extract("Remind me to stretch at 7 a.m.", friday9am)[0].remindAt,
+        )
+        assertEquals(
+            LocalDateTime.of(2026, 9, 25, 20, 0),
+            TaskExtractor.extract("Remind me to stretch at 8 p.m.", friday9am)[0].remindAt,
+        )
+        assertEquals(
+            LocalDateTime.of(2026, 9, 26, 7, 0),
+            TaskExtractor.extract("Remind me to stretch at 7am.", friday9am)[0].remindAt,
+        )
+        assertEquals(
+            LocalDateTime.of(2026, 9, 25, 20, 0),
+            TaskExtractor.extract("Remind me to stretch at 8pm.", friday9am)[0].remindAt,
+        )
+    }
+
+    @Test
+    fun `decimal time with meridian survives sentence splitting`() {
+        // "5.30pm" → normalized to "5:30pm" before the transcript is split.
+        assertEquals(
+            LocalDateTime.of(2026, 9, 25, 17, 30),
+            TaskExtractor.extract("Remind me to leave at 5.30pm.", friday9am)[0].remindAt,
+        )
+    }
 }
