@@ -15,17 +15,17 @@ appId: com.chronicle.app
 - assertVisible: 'Until it''s installed, Chronicle uses the Quiet parser\.'
 - tapOn: '^Llama 3.2 3B$'
 - assertVisible: 'An on-device mind that reads your entries\.'
-- assertVisible: '≈ 2 GB'
+- assertVisible: 'varies with the model you pick'
 # A previous run may have left the model in Failed state → "Try again".
-- assertVisible: '(Download · 2 GB|Try again)'
+- assertVisible: '(^Download$|Try again)'
 - assertVisible: 'Download source'
 - takeScreenshot: tc11-ondevice
 # The emulator's HF download can fail fast (chain validation) — tolerate
 # the Failed/"Try again" terminal state alongside the clean Cancel path.
-- tapOn: '(Download · 2 GB|Try again)'
+- tapOn: '(^Download$|Try again)'
 - assertVisible: '(Cancel|Try again)'
 - takeScreenshot: tc11-llm-downloading
 - tapOn:
     text: 'Cancel'
     optional: true
-- assertVisible: '(Download · 2 GB|Try again)'
+- assertVisible: '(^Download$|Try again)'

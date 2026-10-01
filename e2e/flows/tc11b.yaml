@@ -16,12 +16,12 @@ appId: com.chronicle.app
 - assertVisible: 'https://huggingface.co[\s\S]*'
 - takeScreenshot: tc11-ondevice
 - scrollUntilVisible:
-    element: '(Download · 2 GB|Try again)'
+    element: '(^Download$|Try again)'
     direction: up
-- tapOn: '(Download · 2 GB|Try again)'
+- tapOn: '(^Download$|Try again)'
 - assertVisible: '(Cancel|Try again)'
 - takeScreenshot: tc11-llm-downloading
 - tapOn:
     text: 'Cancel'
     optional: true
-- assertVisible: '(Download · 2 GB|Try again)'
+- assertVisible: '(^Download$|Try again)'
