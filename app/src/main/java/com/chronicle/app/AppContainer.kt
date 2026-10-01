@@ -5,6 +5,7 @@ import androidx.room.Room
 import com.chronicle.app.core.UiMessageBus
 import com.chronicle.app.data.JournalRepository
 import com.chronicle.app.data.PrefsRepository
+import com.chronicle.app.data.SecretStore
 import com.chronicle.app.data.TaskRepository
 import com.chronicle.app.data.db.ChronicleDatabase
 import com.chronicle.app.media.EntryPlayer
@@ -39,7 +40,13 @@ class AppContainer(context: Context) {
 
     val journalRepository = JournalRepository(database.entryDao())
     val taskRepository = TaskRepository(database.taskDao())
-    val prefsRepository = PrefsRepository(appContext)
+
+    /**
+     * Keystore-backed sealer for API keys at rest. Null when the keystore is
+     * unavailable — PrefsRepository keeps plaintext working then (BE-24).
+     */
+    private val secretStore = SecretStore.create()
+    val prefsRepository = PrefsRepository(appContext, secretStore)
 
     /** The single channel one-shot user-facing messages travel on. */
     val uiMessages = UiMessageBus()
@@ -48,7 +55,7 @@ class AppContainer(context: Context) {
     val voiceRecorder = VoiceRecorder(appContext, appScope)
     val wavRecorder = WavRecorder(appContext, appScope)
     val transcriber = SpeechTranscriber(appContext)
-    val player = EntryPlayer(appScope, uiMessages)
+    val player = EntryPlayer(appScope, uiMessages, context = appContext)
 
     /**
      * Model downloads own their own scope — a transfer must keep running

@@ -3,7 +3,7 @@ package com.chronicle.app.ui.vm
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.chronicle.app.data.MindBackend
-import com.chronicle.app.data.PrefsRepository
+import com.chronicle.app.data.PrefsStore
 import com.chronicle.app.data.SttEngine
 import com.chronicle.app.data.ThemeMode
 import com.chronicle.app.media.LiveTranscriber
@@ -45,7 +45,7 @@ data class SettingsUiState(
 )
 
 class SettingsViewModel(
-    private val prefsRepository: PrefsRepository,
+    private val prefsRepository: PrefsStore,
     private val modelInstallManager: ModelInstallManager,
     private val mindRepository: MindSource,
     private val transcriber: LiveTranscriber,
@@ -92,21 +92,16 @@ class SettingsViewModel(
         viewModelScope.launch { prefsRepository.setThemeMode(mode) }
     }
 
-    fun setDailyNudge(enabled: Boolean) {
+    /**
+     * enabled + minutes arrive together and commit in ONE prefs write — the
+     * alarm is then armed/cancelled from the same pair, never from a stale
+     * `state.value` read (FE-11). The caller passes the current values.
+     */
+    fun setDailyNudge(enabled: Boolean, minutes: Int) {
         viewModelScope.launch {
-            prefsRepository.setDailyNudge(enabled)
-            val minutes = state.value.dailyNudgeMinutes
+            prefsRepository.setDailyNudge(enabled, minutes)
             if (enabled) reminders.scheduleDailyNudge(minutes)
             else reminders.cancelDailyNudge()
-        }
-    }
-
-    fun setDailyNudgeMinutes(minutes: Int) {
-        viewModelScope.launch {
-            prefsRepository.setDailyNudgeMinutes(minutes)
-            if (state.value.dailyNudgeEnabled) {
-                reminders.scheduleDailyNudge(minutes)
-            }
         }
     }
 
