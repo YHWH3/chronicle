@@ -17,7 +17,7 @@ description: How to drive Chronicle Android E2E on the emulator — Maestro quir
 - `launchApp` internally force-stops and flakes adbd with "device offline" (~50% of runs on this host). Omit it from flows; the runner monkey-launches.
 - Text selectors are **full-string regex** matches against a node's whole text — use `[\s\S]*` tails for anything dynamic and `^…$` anchors to disambiguate (e.g. `'^Journal$'` vs the Journal page heading).
 - Redesign note: each `Text` composable stays a separately-matchable node even inside `selectable`/`clickable`/`toggleable` cards — anchored card titles like `'^Parakeet$'`/`'^On-device model$'` tap the card fine.
-- Sentence case everywhere: `Chron.type.meta` is plain Inter — no more uppercase MetaText in the screens (MetaText still exists in `ui/components/` but is unused). Nav labels are `Today`/`Journal`/`Story`/`Intentions`; mode pills `Speak`/`Write` (Role.Tab).
+- Sentence case everywhere: `Chron.type.meta` is plain Inter — no more uppercase MetaText anywhere (the legacy `ui/components/` package is deleted). Nav labels are `Today`/`Journal`/`Story`/`Intentions`; mode pills `Speak`/`Write` (Role.Tab).
 - `inputText` without a focused field sends keyevents to whatever holds focus. Always `tapOn` the field's placeholder text first (`'Add an intention…'`, `'Begin anywhere. The day will shape itself.'`).
 - Nav labels collide with same-named headings/rows. Anchored `'^Journal$'` etc. taps work (icon desc + label both match); point taps at y≈93% still work as fallback (TODAY 13%, JOURNAL 35%, STORY 57%, INTENTIONS 82%).
 - The FloatingNavBar slides away while the IME is up — `hideKeyboard` before nav taps (the swipe-back IME also makes nav point taps hit keys).
@@ -28,7 +28,7 @@ description: How to drive Chronicle Android E2E on the emulator — Maestro quir
 - Maestro 2.10 does NOT accept a top-level `when:` step — use `tapOn: {text: X, optional: true}` for state-tolerant steps (prints WARNED and continues).
 
 ## New-UI selectors (post-redesign)
-- Today idle: date meta `EEE · d MMM` sentence case ("Tue · 30 Sep"); serif greeting renders as TWO nodes ("Good" / "evening." — split on last word); "What happened today?"; gear icon `content-desc="Settings"` (was "Open details"); capture circle `content-desc="Record"` (centred now); caption "Tap to speak your day"; Speak-only "Earlier today" card lists today's entries (Write mode shows the editor instead).
+- Today idle: date meta `EEE · d MMM` sentence case ("Tue · 30 Sep"); serif greeting renders as TWO nodes ("Good" / "evening." — split on last word); "What happened today?"; gear icon `content-desc="Settings"` (was "Open details"); capture circle `content-desc="Record"` (centred now); caption "Tap to speak your day" (hidden on ≤700dp-high screens once today's entries exist — the Earlier-today card takes its slot); Speak-only "Earlier today" card lists today's entries (Write mode shows the editor instead).
 - Write mode: placeholder "Begin anywhere. The day will shape itself."; "Keep" pill is disabled until the draft is non-blank.
 - Recording: HUD "Recording…" + `M:SS` timer + waveform; bottom row has Discard icon+text left, centred stop circle `content-desc="Stop"`, and a non-clickable "Tap to keep" caption.
 - Processing: headline "Transcribing…"/"Looking for intentions…"/"Keeping your words…" + StepList rows.
