@@ -1,10 +1,9 @@
 appId: com.chronicle.app
 ---
-- launchApp
-- tapOn: "JOURNAL"
-- assertVisible: "THE RECORD"
-- assertVisible: "Journal"
-- assertVisible: "Today"
-- assertVisible: "Saturday"
-- assertVisible: "walked the coast road, cold wind"
-- assertVisible: "remind me to call the dentist tomorrow at 5"
+- waitForAnimationToEnd
+- tapOn: '^Journal$'
+- assertVisible: 'Journal'
+# Day labels are "Today"/"Yesterday"/"EEEE · d MMM" — no more masthead.
+- assertVisible: '^Today$'
+- assertVisible: 'walked the coast road, cold wind'
+- assertVisible: 'remind me to call the dentist tomorrow at 5'

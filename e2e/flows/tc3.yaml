@@ -1,13 +1,15 @@
 appId: com.chronicle.app
 ---
-- launchApp
-- tapOn: "WRITE"
-- tapOn: "Begin anywhere. The day will shape itself."
-- inputText: "remind me to call the dentist tomorrow at 5"
-- tapOn: "KEEP"
-- assertVisible: "KEPT — 1 REMINDER SET\\.[\\s\\S]*"
-- tapOn: "INTENTIONS"
-- assertVisible: "PULLED FROM YOUR WORDS"
-- assertVisible: "Intentions"
-- assertVisible: "Call the dentist"
-- assertVisible: "SUN 27 SEP · 17:00"
+- waitForAnimationToEnd
+- tapOn: '^Write$'
+- tapOn: 'Begin anywhere. The day will shape itself.'
+- inputText: 'remind me to call the dentist tomorrow at 5'
+- tapOn: '^Keep$'
+- assertVisible: 'Kept\.'
+- assertVisible: '1 reminder set'
+# "tomorrow at 5" -> 17:00 next day; meta reads "Tomorrow · 17:00 · From your journal".
+- tapOn: '^Intentions$'
+- assertVisible: 'What you mean to do\.'
+- assertVisible: '^Intentions$'
+- assertVisible: 'Call the dentist'
+- assertVisible: 'Tomorrow · 17:00[\s\S]*'
