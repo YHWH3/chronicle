@@ -17,9 +17,14 @@ import com.chronicle.app.domain.toDomain
 import com.chronicle.app.media.EntryPlayer
 import com.chronicle.app.media.WavTranscriber
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -42,6 +47,7 @@ data class JournalUiState(
     val pendingDelete: EntryEntity? = null,
 )
 
+@OptIn(ExperimentalCoroutinesApi::class) // mapLatest
 class JournalViewModel(
     private val journalRepository: JournalRepository,
     private val player: EntryPlayer,
@@ -53,6 +59,8 @@ class JournalViewModel(
      * task repository in.
      */
     private val taskRepository: TaskRepository? = null,
+    /** Where entity→domain→day grouping runs — O(entries) per emission (FE-07). */
+    private val computeDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(JournalUiState())
@@ -60,16 +68,20 @@ class JournalViewModel(
 
     init {
         viewModelScope.launch {
-            journalRepository.observeAll().collect { list ->
-                val grouped = list.map { it.toDomain() }
-                    .groupBy { it.day }
-                    .toSortedMap(compareByDescending { it })
-                    .map { (day, entries) -> JournalDay(day, entries) }
-                _state.value = _state.value.copy(
-                    days = grouped,
-                    canRetranscribe = wavTranscriber.available,
-                )
-            }
+            journalRepository.observeAll()
+                .mapLatest { list ->
+                    list.map { it.toDomain() }
+                        .groupBy { it.day }
+                        .toSortedMap(compareByDescending { it })
+                        .map { (day, entries) -> JournalDay(day, entries) }
+                }
+                .flowOn(computeDispatcher)
+                .collect { grouped ->
+                    _state.value = _state.value.copy(
+                        days = grouped,
+                        canRetranscribe = wavTranscriber.available,
+                    )
+                }
         }
         viewModelScope.launch {
             combine(player.playingPath, player.progress) { p, pr -> p to pr }

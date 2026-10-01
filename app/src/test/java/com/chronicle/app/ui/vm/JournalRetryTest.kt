@@ -17,6 +17,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -87,7 +88,10 @@ class JournalRetryTest {
         val messages = mutableListOf<UiMessage>()
         backgroundScope.launch { bus.messages.collect { messages += it } }
 
-        val vm = JournalViewModel(JournalRepository(dao), EntryPlayer(backgroundScope), wav, bus)
+        val vm = JournalViewModel(
+            JournalRepository(dao), EntryPlayer(backgroundScope), wav, bus,
+            computeDispatcher = StandardTestDispatcher(testScheduler),
+        )
         runCurrent()
         val entry = vm.state.value.days[0].entries[0]
         assertEquals(TranscriptStatus.FAILED, entry.transcriptStatus)
@@ -116,7 +120,10 @@ class JournalRetryTest {
         val messages = mutableListOf<UiMessage>()
         backgroundScope.launch { bus.messages.collect { messages += it } }
 
-        val vm = JournalViewModel(JournalRepository(dao), EntryPlayer(backgroundScope), wav, bus)
+        val vm = JournalViewModel(
+            JournalRepository(dao), EntryPlayer(backgroundScope), wav, bus,
+            computeDispatcher = StandardTestDispatcher(testScheduler),
+        )
         runCurrent()
         vm.retryTranscription(vm.state.value.days[0].entries[0])
         runCurrent()
@@ -138,7 +145,10 @@ class JournalRetryTest {
         wav.onTranscribe = { called = true; "" }
         val bus = UiMessageBus()
 
-        val vm = JournalViewModel(JournalRepository(dao), EntryPlayer(backgroundScope), wav, bus)
+        val vm = JournalViewModel(
+            JournalRepository(dao), EntryPlayer(backgroundScope), wav, bus,
+            computeDispatcher = StandardTestDispatcher(testScheduler),
+        )
         runCurrent()
         vm.retryTranscription(vm.state.value.days[0].entries[0])
         runCurrent()

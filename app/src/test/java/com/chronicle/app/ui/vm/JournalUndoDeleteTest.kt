@@ -14,6 +14,7 @@ import java.io.File
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -110,6 +111,7 @@ class JournalUndoDeleteTest {
             SilentWav(),
             UiMessageBus(),
             TaskRepository(taskDao),
+            computeDispatcher = StandardTestDispatcher(testScheduler),
         )
         runCurrent()
         val entry = vm.state.value.days[0].entries[0]
@@ -134,6 +136,7 @@ class JournalUndoDeleteTest {
             EntryPlayer(backgroundScope),
             SilentWav(),
             UiMessageBus(),
+            computeDispatcher = StandardTestDispatcher(testScheduler),
         )
         runCurrent()
         val entry = vm.state.value.days[0].entries[0]
@@ -160,6 +163,7 @@ class JournalUndoDeleteTest {
             EntryPlayer(backgroundScope),
             SilentWav(),
             UiMessageBus(),
+            computeDispatcher = StandardTestDispatcher(testScheduler),
         )
         runCurrent()
         val entries = vm.state.value.days[0].entries
@@ -184,6 +188,7 @@ class JournalUndoDeleteTest {
             EntryPlayer(backgroundScope),
             SilentWav(),
             UiMessageBus(),
+            computeDispatcher = StandardTestDispatcher(testScheduler),
         )
         runCurrent()
         vm.undoDelete()
