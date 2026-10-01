@@ -47,11 +47,17 @@ class EntryPlayer(
             uiMessages?.send(UiMessage.PlaybackFailed)
             return
         }
-        p.setOnCompletionListener { stopInternal() }
-        p.setOnErrorListener { _, _, _ ->
+        // Callbacks carry their MediaPlayer — a queued event from a player a
+        // newer play() already replaced must not tear the new one down.
+        p.setOnCompletionListener { mp ->
+            if (mp === player) stopInternal()
+        }
+        p.setOnErrorListener { mp, _, _ ->
             // Returning true = consumed; we've already torn everything down.
-            stopInternal()
-            uiMessages?.send(UiMessage.PlaybackFailed)
+            if (mp === player) {
+                stopInternal()
+                uiMessages?.send(UiMessage.PlaybackFailed)
+            }
             true
         }
         player = p
@@ -69,7 +75,11 @@ class EntryPlayer(
         ticker = scope.launch(Dispatchers.Main.immediate) {
             while (isActive) {
                 val mp = player ?: break
-                _progress.value = if (mp.duration > 0) mp.currentPosition / mp.duration.toFloat() else 0f
+                // duration/currentPosition throw on a released instance —
+                // if a release snuck past the null check, just drop the tick.
+                _progress.value = runCatching {
+                    if (mp.duration > 0) mp.currentPosition / mp.duration.toFloat() else 0f
+                }.getOrDefault(0f)
                 delay(120)
             }
         }
