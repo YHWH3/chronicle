@@ -78,6 +78,12 @@ private class FakeEntryDao(private val events: MutableList<String>) : EntryDao {
         all.value = rows.toList()
         return row.id
     }
+    override suspend fun insertPreservingId(entry: EntryEntity): Long {
+        rows.removeIf { it.id == entry.id }
+        rows += entry
+        all.value = rows.toList()
+        return entry.id
+    }
     override suspend fun updateTranscript(id: Long, transcript: String, status: String) {
         val i = rows.indexOfFirst { it.id == id }
         if (i >= 0) rows[i] = rows[i].copy(transcript = transcript, transcriptStatus = status)
@@ -99,6 +105,25 @@ private class FakeTaskDao(private val events: MutableList<String>) : TaskDao {
     override suspend fun byId(id: Long) = rows.firstOrNull { it.id == id }
     override suspend fun pendingReminders(after: Long) = rows.filter {
         !it.done && it.remindAt != null && it.remindAt > after
+    }
+    override suspend fun pendingRemindersDue(now: Long) = rows.filter {
+        !it.done && it.remindAt != null && it.notifiedAt == null && it.remindAt <= now
+    }
+    override suspend fun markNotified(id: Long, now: Long): Int {
+        val i = rows.indexOfFirst { it.id == id }
+        if (i < 0 || rows[i].notifiedAt != null) return 0
+        rows[i] = rows[i].copy(notifiedAt = now)
+        return 1
+    }
+    override suspend fun clearNotified(id: Long) {
+        val i = rows.indexOfFirst { it.id == id }
+        if (i >= 0) rows[i] = rows[i].copy(notifiedAt = null)
+    }
+    override suspend fun updateDetails(id: Long, title: String, remindAt: Long?) {
+        val i = rows.indexOfFirst { it.id == id }
+        if (i >= 0) {
+            rows[i] = rows[i].copy(title = title, remindAt = remindAt, notifiedAt = null)
+        }
     }
     override suspend fun insert(task: TaskEntity): Long {
         if (task.title == failOnTitle) throw IOException("insert refused")
@@ -175,6 +200,7 @@ private class FakeReminders : ReminderGateway {
     var notificationsEnabled = true
     override fun scheduleTask(taskId: Long, title: String, atMillis: Long) { scheduled += taskId }
     override fun cancelTask(taskId: Long) {}
+    override fun notifyTask(taskId: Long, title: String) {}
     override fun cancelNotification(taskId: Long) {}
     override fun scheduleDailyNudge(minutesAfterMidnight: Int) {}
     override fun cancelDailyNudge() {}

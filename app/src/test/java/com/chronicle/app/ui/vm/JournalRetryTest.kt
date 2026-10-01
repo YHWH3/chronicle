@@ -43,6 +43,7 @@ class JournalRetryTest {
         override suspend fun allOnce() = rows.value
         override suspend fun byId(id: Long) = rows.value.firstOrNull { it.id == id }
         override suspend fun insert(entry: EntryEntity) = entry.id
+        override suspend fun insertPreservingId(entry: EntryEntity) = entry.id
         override suspend fun updateTranscript(id: Long, transcript: String, status: String) {
             events += "update:$status"
             rows.value = rows.value.map {

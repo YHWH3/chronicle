@@ -10,6 +10,8 @@ import androidx.core.app.NotificationManagerCompat
 interface ReminderGateway {
     fun scheduleTask(taskId: Long, title: String, atMillis: Long)
     fun cancelTask(taskId: Long)
+    /** Posts the reminder notification right now — used by missed-fire catch-up. */
+    fun notifyTask(taskId: Long, title: String)
     fun cancelNotification(taskId: Long)
     fun scheduleDailyNudge(minutesAfterMidnight: Int)
     fun cancelDailyNudge()
@@ -26,6 +28,9 @@ class AndroidReminderGateway(context: Context) : ReminderGateway {
 
     override fun cancelTask(taskId: Long) =
         ReminderScheduler.cancelTask(appContext, taskId)
+
+    override fun notifyTask(taskId: Long, title: String) =
+        Notifier.notifyTask(appContext, taskId, title)
 
     override fun cancelNotification(taskId: Long) =
         Notifier.cancel(appContext, taskId)
