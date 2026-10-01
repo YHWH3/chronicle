@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import com.chronicle.app.MainActivity
 import com.chronicle.app.R
 
@@ -63,6 +64,9 @@ object Notifier {
     fun cancel(context: Context, taskId: Long) {
         notificationManager(context).cancel(taskId.toInt())
     }
+
+    fun notificationsEnabled(context: Context): Boolean =
+        NotificationManagerCompat.from(context).areNotificationsEnabled()
 
     private fun notificationManager(context: Context) =
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
