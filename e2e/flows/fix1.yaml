@@ -1,13 +1,20 @@
 appId: com.chronicle.app
 ---
+# Regression: cancelling a model download must restore the Download action.
+# Self-contained: Today → Settings → The Ear → Parakeet → model page.
+- waitForAnimationToEnd
+- tapOn: 'Settings'
+- tapOn: 'The Ear'
+- tapOn: '^Parakeet$'
+- tapOn: 'Parakeet TDT 0.6B'
 - scrollUntilVisible:
-    element: 'GET IT'
+    element: 'Download · 250 MB'
     direction: down
 - takeScreenshot: fix1-before-getit
-- tapOn: 'GET IT'
-- assertVisible: 'CANCEL'
+- tapOn: 'Download · 250 MB'
+- assertVisible: 'Cancel'
 - takeScreenshot: fix1-downloading
-- tapOn: 'CANCEL'
+- tapOn: 'Cancel'
 - takeScreenshot: fix1-immediately-after-cancel
-- assertVisible: 'GET IT'
+- assertVisible: 'Download · 250 MB'
 - takeScreenshot: fix1-getit-returned

@@ -1,7 +1,8 @@
 appId: com.chronicle.app
 ---
+- waitForAnimationToEnd
 - assertNotVisible: 'DETAILS'
 - takeScreenshot: fix4-today-no-details-assert
-- tapOn: 'Open details'
-- assertVisible: 'The quiet particulars'
+- tapOn: 'Settings'
+- assertVisible: 'The quiet particulars\.'
 - takeScreenshot: fix4-settings-open
