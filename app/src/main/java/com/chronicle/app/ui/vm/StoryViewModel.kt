@@ -9,6 +9,7 @@ import com.chronicle.app.domain.StoryComposer
 import com.chronicle.app.domain.toDomain
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOn
@@ -34,6 +35,7 @@ data class StoryUiState(
         story?.chapters?.getOrNull(chapterWeeks.indexOf(weekStart))
 }
 
+@OptIn(ExperimentalCoroutinesApi::class) // mapLatest
 class StoryViewModel(
     private val journalRepository: JournalRepository,
     /** Where entry→story composition runs — compose is O(entries) per edit. */
