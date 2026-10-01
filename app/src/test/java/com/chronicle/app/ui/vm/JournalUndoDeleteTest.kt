@@ -178,7 +178,7 @@ class JournalUndoDeleteTest {
     @Test
     fun `undo is a no-op without a pending delete`() = runTest {
         val entryDao = FakeEntryDao()
-        entryDao.rows.value = listOf(voiceEntry(7, File.createTempFile("t", ".wav")))
+        entryDao.rows.value = listOf(voiceEntry(7, File.createTempFile("take", ".wav")))
         val vm = JournalViewModel(
             JournalRepository(entryDao),
             EntryPlayer(backgroundScope),
