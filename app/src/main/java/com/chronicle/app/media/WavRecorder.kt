@@ -4,25 +4,34 @@ import android.content.Context
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.os.SystemClock
 import java.io.File
+import java.io.IOException
 import java.io.RandomAccessFile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Shared surface of a take recorder — lets the app swap encoders per engine. */
 interface TakeRecorder {
     val amplitudes: StateFlow<List<Float>>
     val elapsedMs: StateFlow<Long>
     val isRecording: Boolean
-    fun start(): File
-    /** Stops and returns the file + duration, or null if nothing was captured. */
-    fun stop(): Pair<File, Long>?
+    /** Starts a take; never throws — failures arrive as typed [RecordStart]s. */
+    fun start(): RecordStart
+    /**
+     * Stops and returns the file + duration, or null if nothing was captured.
+     * Suspends so the writer/sampler jobs are fully joined before release.
+     */
+    suspend fun stop(): Pair<File, Long>?
     fun cancel()
 }
 
@@ -39,6 +48,8 @@ class WavRecorder(private val context: Context, private val scope: CoroutineScop
     private var startedAt: Long = 0
     @Volatile private var dataBytes: Long = 0
     @Volatile private var peak: Int = 0
+    /** Signals the write loop to drain and exit — set before AudioRecord.stop(). */
+    @Volatile private var stopping = false
 
     private val _amplitudes = MutableStateFlow<List<Float>>(List(VoiceRecorder.BARS) { 0f })
     override val amplitudes: StateFlow<List<Float>> = _amplitudes
@@ -48,13 +59,14 @@ class WavRecorder(private val context: Context, private val scope: CoroutineScop
 
     override val isRecording: Boolean get() = record != null
 
-    override fun start(): File {
+    override fun start(): RecordStart {
         val dir = File(context.filesDir, "recordings").apply { mkdirs() }
         val file = File(dir, "note_${System.currentTimeMillis()}.wav")
         outputFile = file
         dataBytes = 0
         peak = 0
-        startedAt = System.currentTimeMillis()
+        stopping = false
+        startedAt = SystemClock.elapsedRealtime()
 
         val minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL, ENCODING)
         val r = try {
@@ -66,19 +78,42 @@ class WavRecorder(private val context: Context, private val scope: CoroutineScop
                 maxOf(minBuf * 2, 64 * 1024),
             )
         } catch (e: SecurityException) {
-            outputFile = null
-            file.delete()
-            throw SecurityException("microphone permission denied", e)
+            discard(file)
+            return RecordStart.PermissionMissing
+        } catch (e: RuntimeException) {
+            discard(file)
+            return RecordStart.InitFailed(e.message ?: "AudioRecord init failed")
         }
-        check(r.state == AudioRecord.STATE_INITIALIZED) { "AudioRecord failed to init" }
+        if (r.state != AudioRecord.STATE_INITIALIZED) {
+            r.release()
+            discard(file)
+            return RecordStart.InitFailed("AudioRecord failed to initialize")
+        }
         try {
             file.outputStream().use { it.write(ByteArray(44)) } // header placeholder
             r.startRecording()
-        } catch (e: Exception) {
+        } catch (e: SecurityException) {
             r.release()
-            file.delete()
-            outputFile = null
-            throw e
+            discard(file)
+            return RecordStart.PermissionMissing
+        } catch (e: IllegalStateException) {
+            // Mic held by another app/call.
+            r.release()
+            discard(file)
+            return RecordStart.MicrophoneBusy
+        } catch (e: IOException) {
+            r.release()
+            discard(file)
+            return RecordStart.Unavailable
+        } catch (e: RuntimeException) {
+            r.release()
+            discard(file)
+            return RecordStart.InitFailed(e.message ?: "startRecording failed")
+        }
+        if (r.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+            r.release()
+            discard(file)
+            return RecordStart.Unavailable
         }
         record = r
 
@@ -87,17 +122,30 @@ class WavRecorder(private val context: Context, private val scope: CoroutineScop
 
         writeJob = scope.launch(Dispatchers.IO) {
             val buf = ByteArray(8 * 1024)
-            file.outputStream().use { out ->
-                // Skip past the header placeholder written above.
-                out.channel.position(44)
-                while (isActive) {
-                    val n = r.read(buf, 0, buf.size)
-                    if (n > 0) {
-                        out.write(buf, 0, n)
-                        dataBytes += n
-                        peak = maxOf(peak, pcmPeak(buf, n))
+            try {
+                file.outputStream().use { out ->
+                    // Skip past the header placeholder written above.
+                    out.channel.position(44)
+                    while (isActive && !stopping) {
+                        // read() unblocks with an error once AudioRecord.stop()
+                        // lands, and a released recorder throws — both end the loop.
+                        val n = try {
+                            r.read(buf, 0, buf.size)
+                        } catch (e: Exception) {
+                            -1
+                        }
+                        if (n > 0) {
+                            out.write(buf, 0, n)
+                            dataBytes += n
+                            peak = maxOf(peak, WavPcm.pcmPeak(buf, n))
+                        } else if (n < 0) {
+                            break
+                        }
                     }
+                    out.flush()
                 }
+            } catch (e: Exception) {
+                // File gone or disk error — dataBytes stays 0, stop() drops the take.
             }
         }
 
@@ -110,26 +158,32 @@ class WavRecorder(private val context: Context, private val scope: CoroutineScop
                 current.removeAt(0)
                 current.add(normalized)
                 _amplitudes.value = current
-                _elapsedMs.value = System.currentTimeMillis() - startedAt
+                _elapsedMs.value = SystemClock.elapsedRealtime() - startedAt
             }
         }
-        return file
+        return RecordStart.Started(file)
     }
 
-    override fun stop(): Pair<File, Long>? {
+    /**
+     * Signal the writer → stop AudioRecord (unblocks its read) → join the
+     * writer → fix the header → release. No sleeps, no racing release.
+     */
+    override suspend fun stop(): Pair<File, Long>? {
         val file = outputFile ?: return null
         val r = record ?: return null
-        val duration = System.currentTimeMillis() - startedAt
+        val duration = SystemClock.elapsedRealtime() - startedAt
         pollJob?.cancel()
-        r.stop()
-        record = null
-        writeJob?.let { job ->
-            // Give the writer a moment to drain the last buffers, then close.
-            Thread.sleep(150)
-            job.cancel()
+        pollJob?.join()
+        stopping = true
+        runCatching { r.stop() }
+        // Header + release run even if stop() itself is cancelled — a partial
+        // take must still be a valid WAV and the device must be freed.
+        withContext(NonCancellable) {
+            withTimeoutOrNull(1_500) { writeJob?.join() }
+            writeHeader(file)
         }
         r.release()
-        writeHeader(file)
+        record = null
         outputFile = null
         if (dataBytes == 0L) {
             file.delete()
@@ -139,6 +193,7 @@ class WavRecorder(private val context: Context, private val scope: CoroutineScop
     }
 
     override fun cancel() {
+        stopping = true
         pollJob?.cancel()
         writeJob?.cancel()
         record?.let { r ->
@@ -152,42 +207,17 @@ class WavRecorder(private val context: Context, private val scope: CoroutineScop
         _elapsedMs.value = 0L
     }
 
+    private fun discard(file: File) {
+        file.delete()
+        outputFile = null
+    }
+
     private fun writeHeader(file: File) {
         RandomAccessFile(file, "rw").use { raf ->
             val data = raf.length() - 44
             raf.seek(0)
-            raf.writeBytes("RIFF")
-            raf.writeIntLE((36 + data).toInt())
-            raf.writeBytes("WAVEfmt ")
-            raf.writeIntLE(16)
-            raf.writeShortLE(1) // PCM
-            raf.writeShortLE(1) // mono
-            raf.writeIntLE(SAMPLE_RATE)
-            raf.writeIntLE(SAMPLE_RATE * 2)
-            raf.writeShortLE(2)
-            raf.writeShortLE(16)
-            raf.writeBytes("data")
-            raf.writeIntLE(data.toInt())
+            raf.write(WavPcm.header(SAMPLE_RATE, data))
         }
-    }
-
-    private fun pcmPeak(buf: ByteArray, n: Int): Int {
-        var max = 0
-        var i = 0
-        while (i + 1 < n) {
-            val s = (buf[i + 1].toInt() shl 8) or (buf[i].toInt() and 0xFF)
-            if (kotlin.math.abs(s) > max) max = kotlin.math.abs(s)
-            i += 2
-        }
-        return max
-    }
-
-    private fun RandomAccessFile.writeIntLE(v: Int) {
-        write(v and 0xFF); write((v shr 8) and 0xFF); write((v shr 16) and 0xFF); write((v shr 24) and 0xFF)
-    }
-
-    private fun RandomAccessFile.writeShortLE(v: Int) {
-        write(v and 0xFF); write((v shr 8) and 0xFF)
     }
 
     companion object {

@@ -20,6 +20,7 @@ import com.chronicle.app.domain.StoryComposer
 import com.chronicle.app.domain.toDomain
 import com.chronicle.app.media.EntryPlayer
 import com.chronicle.app.media.LiveTranscriber
+import com.chronicle.app.media.RecordStart
 import com.chronicle.app.media.TakeRecorder
 import com.chronicle.app.media.WavTranscriber
 import com.chronicle.app.mind.ChatMind
@@ -166,8 +167,6 @@ class TodayViewModel(
             voiceRecorder
         }
 
-    private fun usesParakeet() = activeRecorder() === wavRecorder
-
     /** The recorder handling the current take — chosen at record start. */
     private var recordingRecorder: TakeRecorder? = null
 
@@ -187,16 +186,30 @@ class TodayViewModel(
     fun toggleRecording() {
         if (_state.value.recording == RecordingState.RECORDING) {
             finishRecording()
-        } else {
-            val r = activeRecorder()
-            recordingRecorder = r
-            r.start()
-            if (!usesParakeet() && transcriber.available) transcriber.start()
-            _state.value = _state.value.copy(
-                recording = RecordingState.RECORDING,
-                liveTranscript = "",
-                kept = null,
-            )
+            return
+        }
+        val r = activeRecorder()
+        when (r.start()) {
+            is RecordStart.Started -> {
+                recordingRecorder = r
+                if (r !== wavRecorder && transcriber.available) transcriber.start()
+                _state.value = _state.value.copy(
+                    recording = RecordingState.RECORDING,
+                    liveTranscript = "",
+                    kept = null,
+                    micPermissionGranted = true,
+                )
+            }
+            RecordStart.PermissionMissing -> {
+                recordingRecorder = null
+                _state.value = _state.value.copy(micPermissionGranted = false)
+                uiMessages.send(UiMessage.MicPermanentlyDenied)
+            }
+            else -> {
+                // Busy/Unavailable/InitFailed — stay IDLE, offer a retry.
+                recordingRecorder = null
+                uiMessages.send(UiMessage.RecorderUnavailable { toggleRecording() })
+            }
         }
     }
 
@@ -217,7 +230,9 @@ class TodayViewModel(
 
     private fun finishRecording() {
         if (_state.value.saving) return
-        val take = recordingRecorder?.stop() ?: activeRecorder().stop()
+        val recorder = recordingRecorder ?: activeRecorder()
+        recordingRecorder = null
+        val parakeetTake = recorder === wavRecorder
         val processingStart = System.currentTimeMillis()
         _state.value = _state.value.copy(
             recording = RecordingState.IDLE,
@@ -227,23 +242,24 @@ class TodayViewModel(
         )
 
         viewModelScope.launch {
-            val parakeetTake = recordingRecorder === wavRecorder
-            // Waits briefly for the final recognition results before snapshotting.
-            val transcript = if (parakeetTake) {
-                take?.first?.let { file ->
-                    when (val r = safeSuspend { parakeetTranscriber.transcribe(file) }) {
-                        is OperationResult.Ok -> r.value
-                        is OperationResult.Failed -> {
-                            uiMessages.send(UiMessage.TranscriptionFailed)
-                            ""
-                        }
-                    }
-                }.orEmpty()
-            } else {
-                transcriber.stop()
-                transcriber.transcript.ifBlank { _state.value.liveTranscript }
-            }
             try {
+                // Suspend stop — writers join before the device is released.
+                val take = recorder.stop()
+                // Waits briefly for the final recognition results before snapshotting.
+                val transcript = if (parakeetTake) {
+                    take?.first?.let { file ->
+                        when (val r = safeSuspend { parakeetTranscriber.transcribe(file) }) {
+                            is OperationResult.Ok -> r.value
+                            is OperationResult.Failed -> {
+                                uiMessages.send(UiMessage.TranscriptionFailed)
+                                ""
+                            }
+                        }
+                    }.orEmpty()
+                } else {
+                    safeSuspend { transcriber.stop() }
+                    transcriber.transcript.ifBlank { _state.value.liveTranscript }
+                }
                 val (audioPath, duration) = take?.let { it.first.absolutePath to it.second } ?: (null to 0L)
                 if (transcript.isBlank() && audioPath == null) {
                     awaitDwell(processingStart)
