@@ -10,9 +10,12 @@ import java.time.LocalTime
 import java.time.ZoneId
 
 /**
- * Schedules reminder alarms. Uses inexact alarms ([AlarmManager.setAndAllowWhileIdle])
- * so no SCHEDULE_EXACT_ALARM permission is needed — reminders may arrive a few
- * minutes late under deep doze, which suits a journal.
+ * Schedules reminder alarms. Deliberately inexact:
+ * [AlarmManager.setAndAllowWhileIdle] needs no SCHEDULE_EXACT_ALARM
+ * permission (better Play policy, no permission prompt), and a nudge-
+ * style reminder tolerates minutes-level drift. Timeliness for reminders
+ * that missed their window entirely is handled by [ReminderReconciler]'s
+ * catch-up pass, not by exactness here.
  */
 object ReminderScheduler {
 
@@ -33,7 +36,12 @@ object ReminderScheduler {
     }
 
     fun cancelTask(context: Context, taskId: Long) {
-        taskIntent(context, taskId, "", REQUEST_TASK_OFFSET + taskId.toInt()).cancel()
+        val pending = taskIntent(context, taskId, "", REQUEST_TASK_OFFSET + taskId.toInt())
+        // PendingIntent.cancel() alone does NOT drop the alarm — the system
+        // keeps it and fires an intent that resolves to nothing. Cancel the
+        // alarm first, then release the PendingIntent.
+        alarmManager(context).cancel(pending)
+        pending.cancel()
     }
 
     /** Daily writing nudge at [minutes] past midnight, local time. */
@@ -56,12 +64,15 @@ object ReminderScheduler {
     }
 
     fun cancelDailyNudge(context: Context) {
-        PendingIntent.getBroadcast(
+        val pending = PendingIntent.getBroadcast(
             context,
             REQUEST_DAILY,
             Intent(context, ReminderReceiver::class.java).putExtra(EXTRA_DAILY_NUDGE, true),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        ).cancel()
+        )
+        // Same contract as cancelTask: alarm first, then the PendingIntent.
+        alarmManager(context).cancel(pending)
+        pending.cancel()
     }
 
     private fun taskIntent(context: Context, taskId: Long, title: String, requestCode: Int): PendingIntent =
