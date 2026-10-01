@@ -41,12 +41,67 @@ data class Story(
             appendLine("## ${chapter.title} · ${chapter.subtitle}")
             appendLine()
             for (p in chapter.paragraphs) {
-                appendLine(p)
+                appendLine(escapeMarkdown(p))
                 appendLine()
             }
         }
         appendLine("---")
         appendLine("$totalDays days kept · $totalEntries entries · $totalWords words")
+    }
+
+    /**
+     * Escapes user-derived text so it cannot break the document's markdown
+     * structure: emphasis, code, and link characters are backslash-escaped
+     * anywhere, and block markers (`#`, `>`, `-`, `+`, ordered-list `1.`)
+     * are escaped at line starts. Only applied to entry text — template
+     * headings and rules are emitted raw.
+     */
+    private fun escapeMarkdown(text: String): String {
+        val sb = StringBuilder(text.length + 8)
+        var lineStart = true
+        var i = 0
+        while (i < text.length) {
+            val c = text[i]
+            when {
+                c == '\n' -> {
+                    sb.append(c)
+                    lineStart = true
+                    i++
+                }
+                lineStart && c.isDigit() -> {
+                    // Ordered-list marker like "1." or "12)" — escape the dot.
+                    var j = i
+                    while (j < text.length && text[j].isDigit()) j++
+                    if (j < text.length && (text[j] == '.' || text[j] == ')') &&
+                        (j + 1 == text.length || text[j + 1] == ' ')
+                    ) {
+                        sb.append(text, i, j).append('\\').append(text[j])
+                        i = j + 1
+                    } else {
+                        sb.append(c)
+                        i++
+                    }
+                    lineStart = false
+                }
+                lineStart && (c == '#' || c == '>' || c == '-' || c == '+') -> {
+                    sb.append('\\').append(c)
+                    lineStart = false
+                    i++
+                }
+                c == '\\' || c == '*' || c == '_' || c == '`' ||
+                    c == '[' || c == ']' -> {
+                    sb.append('\\').append(c)
+                    lineStart = false
+                    i++
+                }
+                else -> {
+                    sb.append(c)
+                    if (!c.isWhitespace()) lineStart = false
+                    i++
+                }
+            }
+        }
+        return sb.toString()
     }
 
     private companion object {

@@ -144,6 +144,42 @@ class StoryComposerTest {
     }
 
     @Test
+    fun `markdown escapes hostile transcript content`() {
+        val hostile = "a quiet start\n" +
+            "# not a heading\n" +
+            "*not italic* and _not em_ and `not code`\n" +
+            "[link](https://evil.example)\n" +
+            "> not a quote\n" +
+            "- not a list\n" +
+            "1. not ordered\n" +
+            "a \\ backslash"
+        val entries = listOf(entry(LocalDate.of(2026, 9, 25), 9, hostile))
+        val md = StoryComposer.compose(entries, LocalDate.of(2026, 9, 25)).toMarkdown()
+        // Template stays raw…
+        assertTrue(md.startsWith("# The Story So Far"))
+        assertTrue(md.contains("\n## Chapter I"))
+        // …while entry text is neutralized.
+        assertTrue(md.contains("\\# not a heading"))
+        assertTrue(md.contains("\\*not italic\\* and \\_not em\\_ and \\`not code\\`"))
+        assertTrue(md.contains("\\[link\\](https://evil.example)"))
+        assertTrue(md.contains("\\> not a quote"))
+        assertTrue(md.contains("\\- not a list"))
+        assertTrue(md.contains("1\\. not ordered"))
+        assertTrue(md.contains("a \\\\ backslash"))
+        // No line in the paragraph body may open as a real heading or list.
+        val paragraphLines = md.lines().filter { it.startsWith("On Friday") }
+        assertTrue(paragraphLines.isNotEmpty())
+    }
+
+    @Test
+    fun `markdown leaves plain prose untouched`() {
+        val entries = listOf(entry(LocalDate.of(2026, 9, 25), 9, "a walk, some coffee."))
+        val md = StoryComposer.compose(entries, LocalDate.of(2026, 9, 25)).toMarkdown()
+        assertTrue(md.contains("A walk, some coffee."))
+        assertTrue(!md.contains("\\"))
+    }
+
+    @Test
     fun `roman numerals`() {
         assertEquals("I", StoryComposer.roman(1))
         assertEquals("IV", StoryComposer.roman(4))

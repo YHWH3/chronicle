@@ -1,5 +1,6 @@
 package com.chronicle.app.ui.screens
 
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.clickable
@@ -32,6 +33,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import com.chronicle.app.R
 import com.chronicle.app.domain.Story
 import com.chronicle.app.domain.StoryChapter
@@ -46,16 +48,55 @@ import com.chronicle.app.ui.design.Spacing
 import com.chronicle.app.ui.design.SurfaceLevel
 import com.chronicle.app.ui.theme.Fraunces
 import com.chronicle.app.ui.vm.StoryViewModel
+import java.io.File
+import java.time.LocalDate
 
-/** Shares the whole story as Markdown — one intent for overview and reading. */
+/** Above this size the story is shared file-only; EXTRA_TEXT is skipped. */
+private const val SHARE_TEXT_LIMIT = 50_000
+
+/**
+ * Shares the whole story as a Markdown file via FileProvider — big stories
+ * exceed EXTRA_TEXT binder limits. Small stories also keep an EXTRA_TEXT
+ * copy for receivers that ignore streams.
+ */
 private fun shareStory(context: Context, story: Story?) {
+    val markdown = story?.toMarkdown().orEmpty()
+    val uri = writeShareFile(context, markdown)?.let { file ->
+        runCatching {
+            FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file,
+            )
+        }.getOrNull()
+    }
     val intent = Intent(Intent.ACTION_SEND).apply {
-        type = "text/plain"
-        putExtra(Intent.EXTRA_TEXT, story?.toMarkdown().orEmpty())
+        type = "text/markdown"
         putExtra(Intent.EXTRA_TITLE, "The Story So Far")
+        if (uri != null) {
+            putExtra(Intent.EXTRA_STREAM, uri)
+            // Some receivers read the grant from ClipData rather than the flag.
+            clipData = ClipData.newRawUri("story", uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            if (markdown.length <= SHARE_TEXT_LIMIT) {
+                putExtra(Intent.EXTRA_TEXT, markdown)
+            }
+        } else {
+            // File write failed — degrade to text, capped, rather than nothing.
+            putExtra(Intent.EXTRA_TEXT, markdown.take(SHARE_TEXT_LIMIT))
+        }
     }
     context.startActivity(Intent.createChooser(intent, "Share the story"))
 }
+
+/** Writes the story to `cacheDir/share/story-<today>.md`, clearing old shares. */
+private fun writeShareFile(context: Context, markdown: String): File? =
+    runCatching {
+        val dir = File(context.cacheDir, "share")
+        dir.mkdirs()
+        dir.listFiles()?.forEach { it.delete() }
+        File(dir, "story-${LocalDate.now()}.md").apply { writeText(markdown) }
+    }.getOrNull()
 
 @Composable
 fun StoryScreen(viewModel: StoryViewModel, onOpenChapter: (Int) -> Unit) {
