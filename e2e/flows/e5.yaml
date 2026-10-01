@@ -1,0 +1,17 @@
+appId: com.chronicle.app
+---
+- waitForAnimationToEnd
+# Entry delete: tap a journal row to expand it, then the "Delete" ghost button.
+- tapOn: '^Journal$'
+- assertVisible: 'testing a double tap safeguard'
+- takeScreenshot: e5-journal-before
+- tapOn: 'testing a double tap safeguard'
+- assertVisible: '^Delete$'
+- tapOn: '^Delete$'
+- assertNotVisible: 'testing a double tap safeguard'
+- takeScreenshot: e5-journal-after
+- tapOn:
+    point: '17%,93%'
+- tapOn: '^Speak$'
+- assertNotVisible: 'testing a double tap safeguard'
+- takeScreenshot: e5-today-after

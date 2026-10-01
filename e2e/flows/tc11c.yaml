@@ -1,0 +1,33 @@
+appId: com.chronicle.app
+---
+# Mind page backend config: OpenRouter key + free-model chips, Custom endpoint fields.
+- waitForAnimationToEnd
+- tapOn: 'Settings'
+- tapOn: 'The Mind'
+- scrollUntilVisible:
+    element: '^OpenRouter$'
+    direction: down
+- tapOn: '^OpenRouter$'
+- assertVisible: 'OpenRouter API key \(sk-or-…\)'
+- assertVisible: 'Free models'
+- tapOn: 'OpenRouter API key \(sk-or-…\)'
+- inputText: 'sk-or-dummykey123'
+- takeScreenshot: tc11-openrouter
+- hideKeyboard
+- tapOn: 'google/gemini-2.0-flash-exp'
+- takeScreenshot: tc11-openrouter-picked
+- scrollUntilVisible:
+    element: '^Custom endpoint$'
+    direction: down
+- tapOn: '^Custom endpoint$'
+- assertVisible: 'Base URL \(https://api.openai.com/v1\)'
+- assertVisible: 'Model \(gpt-4o-mini, …\)'
+- assertVisible: 'API key \(optional for some endpoints\)'
+- takeScreenshot: tc11-custom
+- scrollUntilVisible:
+    element: '^Quiet parser$'
+    direction: up
+- tapOn: '^Quiet parser$'
+- assertVisible: 'Finds reminders with simple rules. Instant\.'
+- assertNotVisible: 'Free models'
+- assertNotVisible: 'OpenRouter API key'

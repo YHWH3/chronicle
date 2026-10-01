@@ -1,0 +1,18 @@
+appId: com.chronicle.app
+---
+# Variant of tc10's model-page tail, from a cold relaunch.
+- waitForAnimationToEnd
+- tapOn: 'Settings'
+- tapOn: 'The Ear'
+- tapOn: '^Parakeet$'
+- tapOn: 'Parakeet TDT 0.6B'
+- tapOn: 'Edit'
+- assertVisible: 'https://github.com/k2-fsa.*'
+- takeScreenshot: tc10-ear
+- tapOn: 'Hide'
+- tapOn: 'Download · 250 MB'
+- assertVisible: 'Cancel'
+- takeScreenshot: tc10-downloading
+- tapOn: 'Cancel'
+- assertVisible: 'Download · 250 MB'
+- takeScreenshot: tc10-cancelled

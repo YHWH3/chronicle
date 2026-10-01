@@ -1,0 +1,13 @@
+appId: com.chronicle.app
+---
+- waitForAnimationToEnd
+# Double-tap KEEP safeguard: exactly one entry is created.
+- tapOn: '^Write$'
+- tapOn: 'Begin anywhere. The day will shape itself.'
+- inputText: 'testing a double tap safeguard'
+- doubleTapOn: '^Keep$'
+- assertVisible: 'Kept\.'
+- takeScreenshot: e2-after-doubletap
+- tapOn: '^Journal$'
+- assertVisible: 'testing a double tap safeguard'
+- takeScreenshot: e2-journal

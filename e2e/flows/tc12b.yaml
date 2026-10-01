@@ -1,0 +1,19 @@
+appId: com.chronicle.app
+---
+# Same scenario as tc12, from a cold relaunch.
+- waitForAnimationToEnd
+- tapOn: '^Today$'
+- assertVisible: '^Write$'
+- tapOn: '^Write$'
+- tapOn: 'Begin anywhere. The day will shape itself.'
+- inputText: 'remind me to stretch tonight at 9'
+- tapOn: '^Keep$'
+- takeScreenshot: tc12-hint
+- assertVisible: 'Kept\.'
+- assertVisible: '1 reminder set'
+- assertVisible: 'Read by Quiet parser'
+- takeScreenshot: tc12-kept
+- tapOn: '^Intentions$'
+- assertVisible: 'Stretch'
+- assertVisible: '(Today|Tomorrow) · 09:00[\s\S]*'
+- takeScreenshot: tc12-stretch

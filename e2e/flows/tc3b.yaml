@@ -1,0 +1,9 @@
+appId: com.chronicle.app
+---
+# Variant of tc3's tail: task survives a cold relaunch.
+- waitForAnimationToEnd
+- tapOn: '^Intentions$'
+- assertVisible: 'What you mean to do\.'
+- assertVisible: '^Intentions$'
+- assertVisible: 'Call the dentist'
+- assertVisible: 'Tomorrow · 17:00[\s\S]*'

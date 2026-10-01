@@ -1,0 +1,18 @@
+appId: com.chronicle.app
+---
+# Regression: start/retry then cancel a Parakeet download — the action
+# must always return to a tappable state ("Download · 250 MB" or, after
+# a fast failure, "Try again").
+- waitForAnimationToEnd
+- tapOn: 'Settings'
+- tapOn: 'The Ear'
+- tapOn: '^Parakeet$'
+- tapOn: 'Parakeet TDT 0.6B'
+- tapOn: '(Download · 250 MB|Try again)'
+- assertVisible: '(Cancel|Try again)'
+- takeScreenshot: fix1b-retry-downloading
+- tapOn:
+    text: 'Cancel'
+    optional: true
+- assertVisible: '(Download · 250 MB|Try again)'
+- takeScreenshot: fix1b-after-second-cancel

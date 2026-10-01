@@ -1,0 +1,45 @@
+appId: com.chronicle.app
+---
+- waitForAnimationToEnd
+# Gear icon desc is now "Settings"; Settings is a nav graph, no bottom bar.
+- tapOn: 'Settings'
+- assertVisible: 'The quiet particulars\.'
+- assertVisible: 'Appearance'
+- assertVisible: 'Daily nudge'
+- assertVisible: 'The Ear'
+- assertVisible: 'The Mind'
+- assertVisible: 'Privacy'
+- assertVisible: 'About'
+- tapOn: 'Appearance'
+- assertVisible: 'Ink is for the evening; Paper for morning light\.'
+- assertVisible: '^Ink$'
+- assertVisible: '^Paper$'
+- assertVisible: 'Follow the day'
+- takeScreenshot: tc7-default
+# Tile labels sit BELOW the selectable preview — tap the preview's
+# embedded greeting text instead ("Good evening." = Ink, "Good morning."
+# = Paper; the split "Follow the day" tile also shows "Good morning.").
+- tapOn: 'Good evening\.'
+- takeScreenshot: tc7-ink
+- tapOn: 'Good morning\.'
+- takeScreenshot: tc7-paper
+# Theme switch must stay on the page (no eject to Today).
+- assertVisible: 'Ink is for the evening; Paper for morning light\.'
+- tapOn: 'Back'
+- tapOn: 'Daily nudge'
+- assertVisible: 'A gentle reminder to write, once a day\.'
+# SoftSwitch has no text/desc — checkable node at ~(906,614) on 1080x2400.
+- tapOn:
+    point: '84%,26%'
+- takeScreenshot: tc7-nudge-on
+- assertVisible: '07:00'
+- assertVisible: '12:30'
+- assertVisible: '18:00'
+- assertVisible: '20:00'
+- assertVisible: '21:30'
+- takeScreenshot: tc7-notif-chips
+- tapOn:
+    point: '84%,26%'
+- assertNotVisible: '12:30'
+- takeScreenshot: tc7-notif-off
+- pressKey: back

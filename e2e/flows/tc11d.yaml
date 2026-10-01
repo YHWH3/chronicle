@@ -1,0 +1,30 @@
+appId: com.chronicle.app
+---
+# Variant of tc11c: skip key entry, straight to picking a free model.
+- waitForAnimationToEnd
+- tapOn: 'Settings'
+- tapOn: 'The Mind'
+- scrollUntilVisible:
+    element: '^OpenRouter$'
+    direction: down
+- tapOn: '^OpenRouter$'
+- assertVisible: 'Free models'
+- assertVisible: 'meta-llama/llama-3.2-3b-instruct'
+- tapOn: 'google/gemini-2.0-flash-exp'
+- takeScreenshot: tc11-openrouter-picked
+- scrollUntilVisible:
+    element: '^Custom endpoint$'
+    direction: down
+- tapOn: '^Custom endpoint$'
+- assertVisible: 'Base URL \(https://api.openai.com/v1\)'
+- assertVisible: 'Model \(gpt-4o-mini, …\)'
+- assertVisible: 'API key \(optional for some endpoints\)'
+- takeScreenshot: tc11-custom
+- scrollUntilVisible:
+    element: '^Quiet parser$'
+    direction: up
+- tapOn: '^Quiet parser$'
+- assertVisible: 'Finds reminders with simple rules. Instant\.'
+- assertNotVisible: 'Free models'
+- assertNotVisible: 'OpenRouter API key'
+- takeScreenshot: tc11-quiet-collapsed

@@ -1,0 +1,36 @@
+appId: com.chronicle.app
+---
+# Theme tiles + nudge switch + manual task with a Tonight reminder.
+- waitForAnimationToEnd
+- tapOn: 'Settings'
+- tapOn: 'Appearance'
+- tapOn: 'Good evening\.'
+- takeScreenshot: fix5-ink
+- tapOn: 'Good morning\.'
+- takeScreenshot: fix5-paper
+- tapOn: 'Back'
+- tapOn: 'Daily nudge'
+# SoftSwitch has no text/desc — point-tap its node (~906,614 on 1080x2400).
+- tapOn:
+    point: '84%,26%'
+- assertVisible: '07:00'
+- assertVisible: '21:30'
+- takeScreenshot: fix5-nudge-chips
+- tapOn:
+    point: '84%,26%'
+- assertNotVisible: '07:00'
+# Settings is now a nav graph: back twice to reach the tab bar.
+- pressKey: back
+- pressKey: back
+- tapOn: '^Intentions$'
+- tapOn: 'Add an intention…'
+- inputText: 'mop the hallway'
+- tapOn: '^Tonight$'
+- tapOn: '^Add intention$'
+- scrollUntilVisible:
+    element: 'mop the hallway'
+    direction: down
+- assertVisible: 'mop the hallway'
+# TONIGHT resolves to 20:00 today, rolling to tomorrow after 20:00.
+- assertVisible: '(Today|Tomorrow) · 20:00[\s\S]*'
+- takeScreenshot: fix5-manual-task

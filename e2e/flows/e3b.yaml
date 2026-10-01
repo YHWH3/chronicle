@@ -1,0 +1,7 @@
+appId: com.chronicle.app
+---
+# Gear icon is now desc "Settings"; Settings overview shows the new subtitle.
+- waitForAnimationToEnd
+- tapOn: 'Settings'
+- assertVisible: 'The quiet particulars\.'
+- takeScreenshot: e3-settings

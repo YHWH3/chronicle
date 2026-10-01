@@ -1,0 +1,13 @@
+appId: com.chronicle.app
+---
+# Variant of tc6's chapter open, from a cold relaunch.
+- waitForAnimationToEnd
+- tapOn: '^Story$'
+- tapOn: 'The week of the [\s\S]*'
+- assertVisible: 'Back'
+- assertVisible: 'Chapter [IVXLC]+[\s\S]*'
+- assertVisible: '[0-9]+ entries · [0-9]+ words'
+- assertVisible: 'On [A-Z][a-z]+day, the [\s\S]*'
+- assertVisible: '[\s\S]*Walked the coast road, cold wind\.[\s\S]*'
+- assertVisible: '[\s\S]*Later, remind me to call the dentist[\s\S]*'
+- pressKey: back

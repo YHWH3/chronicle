@@ -1,0 +1,33 @@
+appId: com.chronicle.app
+---
+- waitForAnimationToEnd
+# Ear settings: option cards + per-model status row that opens a detail page.
+- tapOn: 'Settings'
+- assertVisible: 'The quiet particulars\.'
+- tapOn: 'The Ear'
+- assertVisible: 'How your voice becomes words\.'
+- assertVisible: 'Android speech recognition'
+- assertVisible: 'Built into Android. Nothing to download\.'
+- assertVisible: '^Parakeet$'
+- tapOn: '^Parakeet$'
+# Selecting Parakeet reveals the model status row.
+- assertVisible: 'Parakeet TDT 0.6B'
+- assertVisible: 'Not installed'
+- assertVisible: 'Until it''s installed, Chronicle uses Android''s recogniser\.'
+- tapOn: 'Parakeet TDT 0.6B'
+- assertVisible: 'On-device speech transcription\.'
+- assertVisible: '≈ 250 MB'
+- assertVisible: 'Runs entirely on this phone'
+- assertVisible: 'Download · 250 MB'
+- assertVisible: 'Best on Wi-Fi\.'
+# "Download source" is now collapsed behind an Edit toggle.
+- tapOn: 'Edit'
+- assertVisible: 'https://github.com/k2-fsa.*'
+- takeScreenshot: tc10-ear
+- tapOn: 'Hide'
+- tapOn: 'Download · 250 MB'
+- assertVisible: 'Cancel'
+- takeScreenshot: tc10-downloading
+- tapOn: 'Cancel'
+- assertVisible: 'Download · 250 MB'
+- takeScreenshot: tc10-cancelled
