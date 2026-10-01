@@ -15,7 +15,7 @@ import kotlinx.coroutines.withContext
 class LocalLlmMind(
     private val context: Context,
     private val modelPath: String,
-) : MindEngine {
+) : MindEngine, ReleasableEngine {
 
     override val label = "On-device · ${File(modelPath).nameWithoutExtension}"
 
@@ -49,7 +49,8 @@ class LocalLlmMind(
                 ?: error("Unparseable reply: ${reply.take(200)}")
         }
 
-    fun close() {
+    /** Idempotent — safe from the holder's release path and after a crash. */
+    override fun close() {
         runCatching { llm?.close() }
         llm = null
     }

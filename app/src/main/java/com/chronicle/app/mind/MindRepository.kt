@@ -1,6 +1,5 @@
 package com.chronicle.app.mind
 
-import android.content.Context
 import com.chronicle.app.core.OperationResult
 import com.chronicle.app.core.safeSuspend
 import com.chronicle.app.core.sanitizeReason
@@ -28,9 +27,9 @@ interface MindSource {
  * must never lose the user's words.
  */
 class MindRepository(
-    private val context: Context,
     private val prefsRepository: PrefsRepository,
     private val modelStore: ModelStore,
+    private val llmEngineHolder: LlmEngineHolder<LocalLlmMind>,
 ) : MindSource {
 
     /** The engine the current prefs resolve to. */
@@ -39,22 +38,31 @@ class MindRepository(
         return resolve(prefs)
     }
 
-    override fun resolve(prefs: ChroniclePrefs): MindEngine = when (prefs.mindBackend) {
-        MindBackend.QUIET_PARSER -> DeterministicMind
-        MindBackend.ON_DEVICE -> modelStore.localLlmFile()
-            ?.let { LocalLlmMind(context, it.absolutePath) }
-            ?: DeterministicMind
-        MindBackend.OPENROUTER ->
-            if (prefs.openRouterKey.isBlank()) DeterministicMind
-            else ChatMind.openRouter(prefs.openRouterKey, prefs.openRouterModel)
-        MindBackend.CUSTOM ->
-            if (prefs.customBaseUrl.isBlank() || prefs.customModel.isBlank()) DeterministicMind
-            else ChatMind(
-                label = "Custom · ${prefs.customModel}",
-                baseUrl = prefs.customBaseUrl,
-                apiKey = prefs.customKey,
-                model = prefs.customModel,
-            )
+    override fun resolve(prefs: ChroniclePrefs): MindEngine {
+        val engine = when (prefs.mindBackend) {
+            MindBackend.QUIET_PARSER -> DeterministicMind
+            // The app-scoped holder loads the model once and reuses it until
+            // the file or backend changes — a ~2 GB engine is never rebuilt
+            // per capture.
+            MindBackend.ON_DEVICE -> modelStore.localLlmFile()
+                ?.let { llmEngineHolder.acquire(it.absolutePath) }
+                ?: DeterministicMind
+            MindBackend.OPENROUTER ->
+                if (prefs.openRouterKey.isBlank()) DeterministicMind
+                else ChatMind.openRouter(prefs.openRouterKey, prefs.openRouterModel)
+            MindBackend.CUSTOM ->
+                if (prefs.customBaseUrl.isBlank() || prefs.customModel.isBlank()) DeterministicMind
+                else ChatMind(
+                    label = "Custom · ${prefs.customModel}",
+                    baseUrl = prefs.customBaseUrl,
+                    apiKey = prefs.customKey,
+                    model = prefs.customModel,
+                )
+        }
+        // Any non-local outcome means the backend moved or the model file went
+        // away — drop the cached engine instead of letting it pin ~2 GB.
+        if (engine !is LocalLlmMind) llmEngineHolder.release()
+        return engine
     }
 
     /**

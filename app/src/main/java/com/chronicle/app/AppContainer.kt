@@ -12,6 +12,8 @@ import com.chronicle.app.media.ParakeetTranscriber
 import com.chronicle.app.media.SpeechTranscriber
 import com.chronicle.app.media.VoiceRecorder
 import com.chronicle.app.media.WavRecorder
+import com.chronicle.app.mind.LlmEngineHolder
+import com.chronicle.app.mind.LocalLlmMind
 import com.chronicle.app.mind.MindRepository
 import com.chronicle.app.mind.ModelInstallManager
 import com.chronicle.app.mind.ModelStore
@@ -59,5 +61,11 @@ class AppContainer(context: Context) {
     /** The model download/install owner — also answers "is the pack on disk". */
     val modelStore = ModelInstallManager(modelDisk, installScope)
     val parakeetTranscriber = ParakeetTranscriber(appContext, modelDisk)
-    val mindRepository = MindRepository(appContext, prefsRepository, modelDisk)
+
+    /**
+     * The single on-device LLM instance — cached by model path so captures
+     * never pay a reload; released on backend change or model delete.
+     */
+    val llmEngineHolder = LlmEngineHolder { path -> LocalLlmMind(appContext, path) }
+    val mindRepository = MindRepository(prefsRepository, modelDisk, llmEngineHolder)
 }
