@@ -72,6 +72,11 @@ sealed class UiMessage {
         override val actionLabel = "Settings"
         override val opensAppSettings = true
     }
+
+    /** A take was cut short — a call or another app pulled the microphone. */
+    data object RecordingInterrupted : UiMessage() {
+        override val text = "Recording stopped — interrupted."
+    }
 }
 
 /**
