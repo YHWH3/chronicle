@@ -4,6 +4,7 @@ import android.content.Context
 import com.google.mediapipe.tasks.genai.llminference.LlmInference
 import java.io.File
 import java.time.LocalDateTime
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -36,6 +37,8 @@ class LocalLlmMind(
             val prompt = "$MIND_PROMPT\n\nCurrent time: $now\nCapture:\n$text"
             val reply = try {
                 engine().generateResponse(prompt)
+            } catch (ce: CancellationException) {
+                throw ce
             } catch (t: Throwable) {
                 // Recover from a stale/crashed engine once before giving up.
                 runCatching { llm?.close() }

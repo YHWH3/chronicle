@@ -560,9 +560,17 @@ class JournalViewModel(
 
     fun delete(entry: JournalEntry) {
         viewModelScope.launch {
-            if (player.playingPath.value == entry.audioPath) player.stop()
-            journalRepository.delete(entry.id)
-            entry.audioPath?.let { path -> runCatching { java.io.File(path).delete() } }
+            try {
+                if (player.playingPath.value == entry.audioPath) player.stop()
+                journalRepository.delete(entry.id)
+                entry.audioPath?.let { path ->
+                    runCatching { java.io.File(path).delete() }
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                uiMessages.send(UiMessage.SaveFailed)
+            }
         }
     }
 
