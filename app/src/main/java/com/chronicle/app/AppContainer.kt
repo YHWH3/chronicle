@@ -16,6 +16,7 @@ import com.chronicle.app.mind.LlmEngineHolder
 import com.chronicle.app.mind.LocalLlmMind
 import com.chronicle.app.mind.MindRepository
 import com.chronicle.app.mind.ModelInstallManager
+import com.chronicle.app.mind.ModelKind
 import com.chronicle.app.mind.ModelStore
 import com.chronicle.app.reminders.AndroidReminderGateway
 import com.chronicle.app.reminders.ReminderGateway
@@ -68,4 +69,17 @@ class AppContainer(context: Context) {
      */
     val llmEngineHolder = LlmEngineHolder { path -> LocalLlmMind(appContext, path) }
     val mindRepository = MindRepository(prefsRepository, modelDisk, llmEngineHolder)
+
+    init {
+        // A pack coming or going invalidates whatever engine held its files.
+        modelStore.addModelChangeListener { kind, installed ->
+            when (kind) {
+                ModelKind.PARAKEET_STT -> {
+                    parakeetTranscriber.invalidateAvailabilityCache()
+                    if (!installed) parakeetTranscriber.release()
+                }
+                ModelKind.LOCAL_LLM -> if (!installed) llmEngineHolder.release()
+            }
+        }
+    }
 }
