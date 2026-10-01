@@ -1,5 +1,7 @@
 package com.chronicle.app.ui.nav
 
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
@@ -22,8 +24,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,6 +40,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.dp
+import androidx.core.util.Consumer
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -88,6 +93,7 @@ import com.chronicle.app.ui.vm.TasksViewModel
 import com.chronicle.app.ui.vm.TodayViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -107,6 +113,12 @@ object Routes {
     const val SETTINGS_ABOUT = "settings/about"
     /** Keyed by the chapter's week-start Monday — stable across renumbering. */
     const val CHAPTER = "chapter/{weekStart}"
+    /**
+     * Intent extra a notification sets to deep-link a tab destination —
+     * e.g. `putExtra(Routes.ROUTE_EXTRA, Routes.TASKS)`. Same literal as
+     * `Notifier.EXTRA_ROUTE` (the sender's side of the contract).
+     */
+    const val ROUTE_EXTRA = "chronicle.route"
     fun chapter(weekStart: LocalDate) = "chapter/$weekStart"
     fun settingsModel(kind: com.chronicle.app.mind.ModelKind) = "settings/model/${kind.name}"
 }
@@ -137,6 +149,31 @@ fun ChronicleRoot(container: AppContainer) {
     val onTabRoute = currentRoute in TAB_ROUTES
     val imeVisible = WindowInsets.isImeVisible
     val haptics = LocalHapticFeedback.current
+
+    // Notification deep-links: reminder taps arrive with Intent extra
+    // Routes.ROUTE_EXTRA naming a tab route. Read the launch intent once,
+    // then keep listening for onNewIntent while the root stays composed.
+    val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
+    var pendingRoute by remember { mutableStateOf(activity?.intent.deepLinkRoute()) }
+    DisposableEffect(activity) {
+        if (activity == null) return@DisposableEffect onDispose { }
+        val listener = Consumer<Intent> { pendingRoute = it.deepLinkRoute() }
+        activity.addOnNewIntentListener(listener)
+        onDispose { activity.removeOnNewIntentListener(listener) }
+    }
+    LaunchedEffect(pendingRoute) {
+        val route = pendingRoute ?: return@LaunchedEffect
+        // The launch intent can land before NavHost attaches its graph —
+        // wait for the first back-stack entry before navigating.
+        navController.currentBackStackEntryFlow.first()
+        pendingRoute = null
+        // Consume the extra so a recreate doesn't replay the hop.
+        activity?.intent?.removeExtra(Routes.ROUTE_EXTRA)
+        if (route != navController.currentDestination?.route) {
+            navController.navigateToTab(route)
+        }
+    }
 
     AtmosphereHost {
         // Route drives the base scene; Today overrides per capture phase.
@@ -456,6 +493,16 @@ private fun settingsViewModel(
         },
     )
 }
+
+private tailrec fun Context.findActivity(): ComponentActivity? = when (this) {
+    is ComponentActivity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
+/** A notification's requested destination — only real tab routes qualify. */
+private fun Intent?.deepLinkRoute(): String? =
+    this?.getStringExtra(Routes.ROUTE_EXTRA)?.takeIf { it in TAB_ROUTES }
 
 private fun NavHostController.navigateToTab(route: String) {
     navigate(route) {
