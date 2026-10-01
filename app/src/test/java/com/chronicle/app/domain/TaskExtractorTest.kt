@@ -442,4 +442,150 @@ class TaskExtractorTest {
             TaskExtractor.extract("Remind me to stretch, 7am.", friday9am)[0].remindAt,
         )
     }
+
+    // ————— BE-07: several intents in one sentence —————
+
+    @Test
+    fun `two intents in one sentence yield two tasks`() {
+        val tasks = TaskExtractor.extract(
+            "I need to call Sam tomorrow at 5 and I should buy milk.",
+            friday9am,
+        )
+        assertEquals(2, tasks.size)
+        assertEquals("Call Sam", tasks[0].title)
+        assertEquals(LocalDateTime.of(2026, 9, 26, 17, 0), tasks[0].remindAt)
+        assertEquals("Buy milk", tasks[1].title)
+        assertNull(tasks[1].remindAt)
+    }
+
+    @Test
+    fun `then but because bound a capture`() {
+        val tasks = TaskExtractor.extract(
+            "I need to finish the slides then I should call mum.",
+            friday9am,
+        )
+        assertEquals(2, tasks.size)
+        assertEquals("Finish the slides", tasks[0].title)
+        assertEquals("Call mum", tasks[1].title)
+
+        val single = TaskExtractor.extract(
+            "Remind me to buy milk because we are out.",
+            friday9am,
+        )
+        assertEquals("Buy milk", single[0].title)
+
+        val but = TaskExtractor.extract(
+            "Remind me to email her but not before lunch.",
+            friday9am,
+        )
+        assertEquals("Email her", but[0].title)
+    }
+
+    @Test
+    fun `second intent does not steal the first intents time`() {
+        val tasks = TaskExtractor.extract(
+            "Remind me to call Sam tomorrow and I need to buy milk.",
+            friday9am,
+        )
+        assertEquals(2, tasks.size)
+        assertEquals(LocalDateTime.of(2026, 9, 26, 9, 0), tasks[0].remindAt)
+        assertNull(tasks[1].remindAt)
+    }
+
+    @Test
+    fun `long captures are capped near eight words`() {
+        val tasks = TaskExtractor.extract(
+            "I need to pick up the dry cleaning from the shop on the corner near the bank before they close.",
+            friday9am,
+        )
+        assertTrue(tasks[0].title.split(" ").size <= 8)
+        assertTrue(tasks[0].title.length <= 60)
+        assertEquals("Pick up the dry cleaning from the shop", tasks[0].title)
+    }
+
+    // ————— BE-08: apostrophes and new intent forms —————
+
+    @Test
+    fun `curly apostrophes are normalized`() {
+        val tasks = TaskExtractor.extract("I’ve got to call Sam.", friday9am)
+        assertEquals("Call Sam", tasks[0].title)
+        assertEquals(
+            "My keys",
+            TaskExtractor.extract("Don’t let me forget my keys.", friday9am)[0].title,
+        )
+    }
+
+    @Test
+    fun `new intent forms extract`() {
+        assertEquals(
+            "Finish the report",
+            TaskExtractor.extract("I've got to finish the report.", friday9am)[0].title,
+        )
+        assertEquals(
+            "Finish the report",
+            TaskExtractor.extract("I'm supposed to finish the report.", friday9am)[0].title,
+        )
+        assertEquals(
+            "Fix the bike",
+            TaskExtractor.extract("i gotta fix the bike.", friday9am)[0].title,
+        )
+    }
+
+    // ————— BE-10: weak intents are suggestions; modal-past is excluded —————
+
+    @Test
+    fun `weak intents are flagged suggested`() {
+        assertTrue(
+            TaskExtractor.extract("I should call him back.", friday9am)[0].suggested,
+        )
+        assertTrue(
+            TaskExtractor.extract("I must fix the door.", friday9am)[0].suggested,
+        )
+        assertTrue(
+            TaskExtractor.extract("I have to pay the rent.", friday9am)[0].suggested,
+        )
+    }
+
+    @Test
+    fun `strong intents stay firm`() {
+        assertTrue(
+            !TaskExtractor.extract("Remind me to call him back.", friday9am)[0].suggested,
+        )
+        assertTrue(
+            !TaskExtractor.extract("I need to fix the door.", friday9am)[0].suggested,
+        )
+        assertTrue(
+            !TaskExtractor.extract("I've got to pay the rent.", friday9am)[0].suggested,
+        )
+        assertTrue(
+            !TaskExtractor.extract("i gotta fix the bike.", friday9am)[0].suggested,
+        )
+    }
+
+    @Test
+    fun `modal perfect and past obligations are excluded`() {
+        assertTrue(
+            TaskExtractor.extract("I should have called her.", friday9am).isEmpty(),
+        )
+        assertTrue(
+            TaskExtractor.extract("I must have left it at work.", friday9am).isEmpty(),
+        )
+        assertTrue(
+            TaskExtractor.extract("I had to work late.", friday9am).isEmpty(),
+        )
+        assertTrue(
+            TaskExtractor.extract("I needed to sleep.", friday9am).isEmpty(),
+        )
+        assertTrue(
+            TaskExtractor.extract("I should’ve called her.", friday9am).isEmpty(),
+        )
+    }
+
+    @Test
+    fun `should have a meeting is still a task`() {
+        // "have" here is possession, not a perfect auxiliary.
+        val tasks = TaskExtractor.extract("I should have a meeting with Sam.", friday9am)
+        assertEquals(1, tasks.size)
+        assertEquals("Have a meeting with Sam", tasks[0].title)
+    }
 }

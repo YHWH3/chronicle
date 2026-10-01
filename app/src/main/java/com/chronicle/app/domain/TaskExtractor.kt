@@ -16,6 +16,11 @@ data class ExtractedTask(
      * to pick one — rather than because none was mentioned.
      */
     val timeAmbiguous: Boolean = false,
+    /**
+     * True for hedged self-talk ("I should…", "I must…", "I have to…") —
+     * surfaced as a suggestion the user can reject rather than a firm task.
+     */
+    val suggested: Boolean = false,
 )
 
 /**
@@ -26,17 +31,49 @@ data class ExtractedTask(
  */
 object TaskExtractor {
 
-    private val INTENT_PATTERNS = listOf(
-        Regex("""\bremind me to\b\s*(.+)""", RegexOption.IGNORE_CASE),
-        Regex("""\bremind me\b\s*(.+)""", RegexOption.IGNORE_CASE),
-        Regex("""\bdon't let me forget(?:\s+to)?\b\s*(.+)""", RegexOption.IGNORE_CASE),
-        Regex("""\bdo not let me forget(?:\s+to)?\b\s*(.+)""", RegexOption.IGNORE_CASE),
-        Regex("""\bremember to\b\s*(.+)""", RegexOption.IGNORE_CASE),
-        Regex("""\bi (?:really )?(?:need|have|'ve got|am supposed|'m supposed) to\b\s*(.+)""", RegexOption.IGNORE_CASE),
-        Regex("""\bi should\b\s*(.+)""", RegexOption.IGNORE_CASE),
-        Regex("""\bi must\b\s*(.+)""", RegexOption.IGNORE_CASE),
-        Regex("""\b(?:to-?do|task|note to self)\s*[:\-–]\s*(.+)""", RegexOption.IGNORE_CASE),
-        Regex("""\badd\b\s+(.+?)\s+\bto (?:my )?(?:task|todo|to-?do) list\b""", RegexOption.IGNORE_CASE),
+    /**
+     * One intent phrasing. [weak] marks hedged self-talk ("I should…",
+     * "I have to…") that is surfaced as a suggestion rather than a firm task.
+     */
+    private data class Intent(val regex: Regex, val weak: Boolean = false)
+
+    private val INTENTS = listOf(
+        Intent(Regex("""\bremind me to\b\s*(.+)""", RegexOption.IGNORE_CASE)),
+        Intent(Regex("""\bremind me\b\s*(.+)""", RegexOption.IGNORE_CASE)),
+        Intent(Regex("""\bdon't let me forget(?:\s+to)?\b\s*(.+)""", RegexOption.IGNORE_CASE)),
+        Intent(Regex("""\bdo not let me forget(?:\s+to)?\b\s*(.+)""", RegexOption.IGNORE_CASE)),
+        Intent(Regex("""\bremember to\b\s*(.+)""", RegexOption.IGNORE_CASE)),
+        Intent(Regex("""\bi (?:really )?need to\b\s*(.+)""", RegexOption.IGNORE_CASE)),
+        Intent(Regex("""\bi've got to\b\s*(.+)""", RegexOption.IGNORE_CASE)),
+        Intent(Regex("""\bi gotta\b\s*(.+)""", RegexOption.IGNORE_CASE)),
+        Intent(Regex("""\bi(?:'m| am) supposed to\b\s*(.+)""", RegexOption.IGNORE_CASE)),
+        Intent(Regex("""\bi (?:really )?should\b\s*(.+)""", RegexOption.IGNORE_CASE), weak = true),
+        Intent(Regex("""\bi (?:really )?must\b\s*(.+)""", RegexOption.IGNORE_CASE), weak = true),
+        Intent(Regex("""\bi (?:really )?have to\b\s*(.+)""", RegexOption.IGNORE_CASE), weak = true),
+        Intent(Regex("""\b(?:to-?do|task|note to self)\s*[:\-–]\s*(.+)""", RegexOption.IGNORE_CASE)),
+        Intent(Regex("""\badd\b\s+(.+?)\s+\bto (?:my )?(?:task|todo|to-?do) list\b""", RegexOption.IGNORE_CASE)),
+    )
+
+    /**
+     * Clause boundaries that end one intent's capture: the next intent's
+     * start (handled separately) or one of these connectives —
+     * "and I …", "then", "but", "because".
+     */
+    private val CLAUSE_BOUNDARY = Regex(
+        """\b(?:and i|then|but|because)\b""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /**
+     * Modal perfect after a weak intent — "I should have called her" is a
+     * regret, not a task. Detects "have/'ve" followed by a past participle
+     * (…ed/…en plus common irregulars). "should have a meeting" survives —
+     * "a" is no participle.
+     */
+    private val MODAL_PERFECT = Regex(
+        """^(?:have|'ve)\s+(?:\w+(?:ed|en)\b|been|done|gone|had|met|left|sent|""" +
+            """forgotten|forgot|made|taken|given|seen|known|called|told|meant|felt|heard|read|lost|paid|said|thought)""",
+        RegexOption.IGNORE_CASE,
     )
 
     /**
@@ -148,6 +185,14 @@ object TaskExtractor {
      */
     private fun normalizeTranscript(raw: String): String {
         var t = raw
+        // Curly apostrophes — speech engines emit U+2019, our intents use '.
+        t = t.replace('’', '\'').replace('‘', '\'')
+        // Modal-perfect contractions ("should've") expand so the past-tense
+        // guard sees the "have".
+        t = t.replace(
+            Regex("""\b(should|could|would|must)'ve\b""", RegexOption.IGNORE_CASE),
+            "$1 have",
+        )
         t = t.replace(Regex("""\b([aApP])\s*\.\s*[mM]\s*\.?"""), "$1m")
         t = t.replace(
             Regex("""\b(\d{1,2})\.(\d{2})\s*([aApP][mM])\b"""),
@@ -155,6 +200,16 @@ object TaskExtractor {
         )
         return t
     }
+
+    /** One intent match inside a sentence, before clause bounding. */
+    private data class Hit(
+        val start: Int,
+        val captureStart: Int,
+        /** End of group(1) — early for lazy captures like "add X to list". */
+        val captureEnd: Int,
+        val weak: Boolean,
+        val order: Int,
+    )
 
     fun extract(transcript: String, now: LocalDateTime): List<ExtractedTask> {
         val sentences = normalizeTranscript(transcript)
@@ -165,29 +220,68 @@ object TaskExtractor {
         val results = LinkedHashMap<String, ExtractedTask>()
 
         for (sentence in sentences) {
-            val intent = INTENT_PATTERNS.firstNotNullOfOrNull { it.find(sentence) }
-                ?: continue
-
-            var fragment = intent.groupValues[1]
-            val time = resolveTime(sentence, now)
-
-            // Remove every matched time phrase from the captured title.
-            for (matched in time.matchedLiterals.sortedByDescending { it.length }) {
-                val idx = fragment.lowercase().indexOf(matched.lowercase())
-                if (idx >= 0) {
-                    fragment = fragment.substring(0, idx) + fragment.substring(idx + matched.length)
+            // Collect every intent in the sentence; first pattern wins on ties
+            // ("remind me to" beats "remind me" at the same offset).
+            val hits = mutableListOf<Hit>()
+            for ((order, intent) in INTENTS.withIndex()) {
+                for (m in intent.regex.findAll(sentence)) {
+                    val g = m.groups[1] ?: continue
+                    hits += Hit(
+                        start = m.range.first,
+                        captureStart = g.range.first,
+                        captureEnd = g.range.last + 1,
+                        weak = intent.weak,
+                        order = order,
+                    )
                 }
             }
+            hits.sortWith(compareBy({ it.start }, { it.order }))
+            val accepted = mutableListOf<Hit>()
+            for (h in hits) {
+                // A match whose intent phrase begins inside an accepted match's
+                // capture is the same intent re-phrased ("remind me" inside
+                // "remind me to …"), not a new one.
+                if (accepted.none { h.start < it.captureStart }) accepted += h
+            }
 
-            val title = polishTitle(fragment)
-            if (title.length >= 3) {
-                val key = title.lowercase()
-                if (!results.containsKey(key) || results[key]?.remindAt == null) {
-                    results[key] = ExtractedTask(
-                        title = title,
-                        remindAt = time.remindAt,
-                        timeAmbiguous = time.ambiguous,
-                    )
+            for ((i, hit) in accepted.withIndex()) {
+                // A capture ends at its own group end, the next intent's
+                // start, or a clause boundary ("and I …", "then", "but",
+                // "because") — whichever comes first.
+                var spanEnd = accepted.getOrNull(i + 1)?.start ?: sentence.length
+                if (hit.captureEnd < spanEnd) spanEnd = hit.captureEnd
+                CLAUSE_BOUNDARY.find(sentence, hit.captureStart)?.let { b ->
+                    if (b.range.first < spanEnd) spanEnd = b.range.first
+                }
+                var fragment = sentence.substring(hit.captureStart, spanEnd)
+
+                // "I should have called her" — modal perfect is a regret,
+                // not an intention. Weak intents only.
+                if (hit.weak && MODAL_PERFECT.containsMatchIn(fragment.trimStart())) continue
+
+                // Time phrases are resolved on this intent's own clause so a
+                // later clause's "tomorrow" can't leak into the wrong task.
+                val contextStart = if (i == 0) 0 else hit.start
+                val time = resolveTime(sentence.substring(contextStart, spanEnd), now)
+
+                for (matched in time.matchedLiterals.sortedByDescending { it.length }) {
+                    val idx = fragment.lowercase().indexOf(matched.lowercase())
+                    if (idx >= 0) {
+                        fragment = fragment.substring(0, idx) + fragment.substring(idx + matched.length)
+                    }
+                }
+
+                val title = polishTitle(fragment)
+                if (title.length >= 3) {
+                    val key = title.lowercase()
+                    if (!results.containsKey(key) || results[key]?.remindAt == null) {
+                        results[key] = ExtractedTask(
+                            title = title,
+                            remindAt = time.remindAt,
+                            timeAmbiguous = time.ambiguous,
+                            suggested = hit.weak,
+                        )
+                    }
                 }
             }
         }
@@ -345,8 +439,14 @@ object TaskExtractor {
     private fun polishTitle(raw: String): String {
         var t = raw.replace(Regex("""\s+"""), " ").trim()
         // Drop dangling connectives left behind by removed time phrases.
-        t = t.replace(Regex("""\s+(at|on|in|by|before|for|and)$""", RegexOption.IGNORE_CASE), "")
+        t = t.replace(Regex("""\s+(at|on|in|by|before|for|and|or)$""", RegexOption.IGNORE_CASE), "")
         t = t.replace(Regex("""^to\s+""", RegexOption.IGNORE_CASE), "")
+        // Keep titles glanceable: ~8 words / 60 chars, then re-clean whatever
+        // the cut exposed.
+        val words = t.split(" ")
+        if (words.size > 8) t = words.take(8).joinToString(" ")
+        if (t.length > 60) t = t.take(60).substringBeforeLast(' ', t.take(60))
+        t = t.replace(Regex("""\s+(at|on|in|by|before|for|and|or|to)$""", RegexOption.IGNORE_CASE), "")
         t = t.trim().trimEnd(',', '.')
         if (t.isEmpty()) return t
         return t.replaceFirstChar { it.uppercase() }
