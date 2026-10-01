@@ -1,10 +1,15 @@
 appId: com.chronicle.app
 ---
-- tapOn:
-    point: "82%,93%"
-- tapOn: 'An intention, plainly put…'
+# Manual task with no reminder — no clock meta on the row. No-reminder
+# tasks sort to the bottom of the open card, so scroll them into view.
+- waitForAnimationToEnd
+- tapOn: '^Intentions$'
+- tapOn: 'Add an intention…'
 - inputText: 'feed the cat'
-- tapOn: 'NO REMINDER'
-- tapOn: 'SET'
-- assertVisible: 'Feed the cat'
+- tapOn: '^No reminder$'
+- tapOn: '^Add intention$'
+- scrollUntilVisible:
+    element: 'feed the cat'
+    direction: down
+- assertVisible: 'feed the cat'
 - takeScreenshot: e6-noreminder

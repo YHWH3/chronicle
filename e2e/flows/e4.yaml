@@ -1,9 +1,19 @@
 appId: com.chronicle.app
 ---
+# Deny RECORD_AUDIO: requires `adb shell pm revoke com.chronicle.app
+# android.permission.RECORD_AUDIO` first — on the API-35 image the
+# permission arrives auto-granted. A denied/aborted previous run leaves
+# a zombie system dialog across the relaunch, so dismiss it first
+# (optional tap). Dialog labels: While using the app / Only this time /
+# Don’t allow — the apostrophe is U+2019, match it with .
+- waitForAnimationToEnd
 - tapOn:
-    point: "30%,36%"
-- assertVisible: "Allow"
+    text: 'Don.t allow'
+    optional: true
+- tapOn: '^Record$'
+- assertVisible: 'Allow Chronicle to record audio\?'
+- assertVisible: 'While using the app'
 - takeScreenshot: e4-permission-dialog
-- tapOn: "Don.t allow"
-- assertVisible: 'TAP · SPEAK YOUR DAY'
+- tapOn: 'Don.t allow'
+- assertVisible: 'Tap to speak your day'
 - takeScreenshot: e4-after-deny

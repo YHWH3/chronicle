@@ -1,14 +1,16 @@
 appId: com.chronicle.app
 ---
-- tapOn:
-    point: "35%,93%"
+- waitForAnimationToEnd
+# KEEP with an empty draft is a no-op — the pill is disabled until text exists.
+- tapOn: '^Journal$'
 - takeScreenshot: e0-journal-baseline
 - tapOn:
-    point: "13%,93%"
+    point: '17%,93%'
+- tapOn: '^Write$'
 - assertVisible: 'Begin anywhere. The day will shape itself.'
 - takeScreenshot: e1-empty-keep-before
-- tapOn: 'KEEP'
+- tapOn: '^Keep$'
+- assertVisible: 'Begin anywhere. The day will shape itself.'
 - takeScreenshot: e1-empty-keep-after
-- tapOn:
-    point: "35%,93%"
+- tapOn: '^Journal$'
 - takeScreenshot: e1-journal-after

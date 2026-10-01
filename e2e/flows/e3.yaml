@@ -1,13 +1,15 @@
 appId: com.chronicle.app
 ---
-- assertVisible: 'EARLIER TODAY'
+- waitForAnimationToEnd
+# Earlier-today card (SPEAK mode) lists the entry; Intentions shows reminders.
+- tapOn: '^Speak$'
+- assertVisible: 'Earlier today'
 - assertVisible: 'testing a double tap safeguard'
 - takeScreenshot: e3-today-entries
-- tapOn:
-    point: "82%,93%"
+- tapOn: '^Intentions$'
 - assertVisible: 'Stretch'
-- assertVisible: 'SAT 26 SEP · 09:00'
+- assertVisible: '(Today|Tomorrow) · 09:00[\s\S]*'
 - assertVisible: 'Water the fern'
-- assertVisible: 'SUN 27 SEP · 09:00'
+- assertVisible: 'Tomorrow · 09:00[\s\S]*'
 - takeScreenshot: e3-intentions
-- tapOn: '󰒓'
+- tapOn: '^Today$'
