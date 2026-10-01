@@ -21,7 +21,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,6 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chronicle.app.R
 import com.chronicle.app.domain.Story
 import com.chronicle.app.domain.StoryChapter
@@ -100,7 +100,7 @@ private fun writeShareFile(context: Context, markdown: String): File? =
 
 @Composable
 fun StoryScreen(viewModel: StoryViewModel, onOpenChapter: (Int) -> Unit) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     val story = state.story
     val context = LocalContext.current
     val p = Chron.palette
@@ -276,7 +276,7 @@ fun StoryChapterScreen(
     chapterNumber: Int,
     onBack: () -> Unit,
 ) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     val chapter = state.story?.chapters?.firstOrNull { it.number == chapterNumber }
     val context = LocalContext.current
     val p = Chron.palette

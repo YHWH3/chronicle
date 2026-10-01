@@ -36,7 +36,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -323,20 +326,29 @@ private fun BoxScope.UiMessageHost(bus: UiMessageBus) {
     var current by remember { mutableStateOf<UiMessage?>(null) }
     // Keep the last message so the exit fade doesn't render an empty pill.
     var lastShown by remember { mutableStateOf<UiMessage?>(null) }
-    LaunchedEffect(bus) {
-        var lastText: String? = null
-        var lastAt = 0L
-        var dismiss: Job? = null
-        bus.messages.collect { msg ->
-            val now = System.currentTimeMillis()
-            if (msg.text == lastText && now - lastAt < 6_000) return@collect
-            lastText = msg.text
-            lastAt = now
-            dismiss?.cancel()
-            dismiss = launch {
-                current = msg
-                lastShown = msg
-                delay(4_200)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    // Pause collection while STOPPED — a message emitted in the background
+    // shouldn't pop a stale pill minutes later (FE-08).
+    LaunchedEffect(bus, lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            try {
+                var lastText: String? = null
+                var lastAt = 0L
+                var dismiss: Job? = null
+                bus.messages.collect { msg ->
+                    val now = System.currentTimeMillis()
+                    if (msg.text == lastText && now - lastAt < 6_000) return@collect
+                    lastText = msg.text
+                    lastAt = now
+                    dismiss?.cancel()
+                    dismiss = launch {
+                        current = msg
+                        lastShown = msg
+                        delay(4_200)
+                        current = null
+                    }
+                }
+            } finally {
                 current = null
             }
         }

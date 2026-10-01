@@ -24,7 +24,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -36,6 +35,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chronicle.app.R
 import com.chronicle.app.data.MindBackend
 import com.chronicle.app.data.SttEngine
@@ -220,7 +220,7 @@ internal fun ModelStatusRow(
 
 @Composable
 fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (String) -> Unit) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     SettingsPage(title = "Settings", onBack = onBack) {
         Text(
             text = "The quiet particulars.",
