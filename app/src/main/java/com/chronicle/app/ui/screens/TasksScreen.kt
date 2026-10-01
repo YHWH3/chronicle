@@ -12,6 +12,9 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -33,9 +36,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -53,6 +58,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import com.chronicle.app.R
 import com.chronicle.app.data.db.TaskEntity
@@ -60,6 +66,7 @@ import com.chronicle.app.ui.design.Chron
 import com.chronicle.app.ui.design.ChoicePill
 import com.chronicle.app.ui.design.CircleCheck
 import com.chronicle.app.ui.design.FrostedTextField
+import com.chronicle.app.ui.design.GhostButton
 import com.chronicle.app.ui.design.GlassSurface
 import com.chronicle.app.ui.design.Hairline
 import com.chronicle.app.ui.design.LargeActionCircle
@@ -72,9 +79,11 @@ import com.chronicle.app.ui.theme.ChronicleMotion
 import com.chronicle.app.ui.vm.ReminderChoice
 import com.chronicle.app.ui.vm.TasksViewModel
 import com.chronicle.app.ui.vm.asLocalDateTime
+import com.chronicle.app.ui.vm.toEpochMs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -90,6 +99,8 @@ fun TasksScreen(viewModel: TasksViewModel) {
     var fieldFocused by remember { mutableStateOf(false) }
     // Rows mid-completion: checked look now, move to Done after the beat.
     var completing by remember { mutableStateOf(setOf<Long>()) }
+    // The intention open in the edit sheet, if any.
+    var editing by remember { mutableStateOf<TaskEntity?>(null) }
 
     val notifPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -233,15 +244,22 @@ fun TasksScreen(viewModel: TasksViewModel) {
                     ) {
                         Column(Modifier.fillMaxWidth()) {
                             state.open.forEachIndexed { index, task ->
-                                SwipeToDeleteRow(
-                                    onDelete = { viewModel.delete(task) },
-                                ) {
-                                    IntentionRow(
-                                        task = task,
-                                        visuallyDone = task.id in completing,
-                                        onToggle = { toggle(task) },
+                                // Keyed by the stable task id — the swipe
+                                // state must follow the task, not the row's
+                                // position, or a delete leaves another row
+                                // holding a half-swiped state.
+                                key(task.id) {
+                                    SwipeToDeleteRow(
                                         onDelete = { viewModel.delete(task) },
-                                    )
+                                    ) {
+                                        IntentionRow(
+                                            task = task,
+                                            visuallyDone = task.id in completing,
+                                            onToggle = { toggle(task) },
+                                            onDelete = { viewModel.delete(task) },
+                                            onEdit = { editing = task },
+                                        )
+                                    }
                                 }
                                 if (index < state.open.lastIndex) Hairline()
                             }
@@ -264,32 +282,53 @@ fun TasksScreen(viewModel: TasksViewModel) {
                 )
             }
             items(state.done, key = { "done-${it.id}" }) { task ->
-                SwipeToDeleteRow(
-                    onDelete = { viewModel.delete(task) },
-                    modifier = Modifier.animateItem(),
-                ) {
-                    IntentionRow(
-                        task = task,
-                        visuallyDone = true,
-                        onToggle = { toggle(task) },
+                // Same stable-id keying inside the keyed lazy item — the
+                // item key scopes the row, this scopes the swipe state.
+                key(task.id) {
+                    SwipeToDeleteRow(
                         onDelete = { viewModel.delete(task) },
-                    )
+                        modifier = Modifier.animateItem(),
+                    ) {
+                        IntentionRow(
+                            task = task,
+                            visuallyDone = true,
+                            onToggle = { toggle(task) },
+                            onDelete = { viewModel.delete(task) },
+                            onEdit = { editing = task },
+                        )
+                    }
                 }
             }
         }
     }
+
+    editing?.let { task ->
+        EditIntentionDialog(
+            task = task,
+            onDismiss = { editing = null },
+            onSave = { title, remindAt ->
+                viewModel.updateTask(task.id, title, remindAt)
+                editing = null
+            },
+        )
+    }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun IntentionRow(
     task: TaskEntity,
     visuallyDone: Boolean,
     onToggle: () -> Unit,
     onDelete: () -> Unit,
+    onEdit: () -> Unit,
 ) {
     val p = Chron.palette
     val type = Chron.type
     val done = task.done || visuallyDone
+    // Past its reminder time and still open — quiet signal, no alarm colour.
+    val overdue = !done && task.remindAt != null &&
+        task.remindAt < System.currentTimeMillis()
     val titleColor by animateColorAsState(
         targetValue = if (done) p.textTertiary else p.textPrimary,
         animationSpec = tween(ChronicleMotion.MICRO, easing = ChronicleMotion.StandardEasing),
@@ -302,9 +341,16 @@ private fun IntentionRow(
             .heightIn(min = 56.dp)
             .semantics {
                 customActions = listOf(
+                    CustomAccessibilityAction("Edit intention") { onEdit(); true },
                     CustomAccessibilityAction("Delete intention") { onDelete(); true },
                 )
             }
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(color = p.textPrimary),
+                onClick = onEdit,
+                onLongClick = onEdit,
+            )
             .padding(horizontal = Spacing.x4, vertical = 8.dp),
     ) {
         CircleCheck(
@@ -322,6 +368,7 @@ private fun IntentionRow(
             )
             val meta = buildList {
                 task.remindAt?.let { add(formatReminder(it)) }
+                if (overdue) add("overdue")
                 if (task.sourceEntryId != null) add("From your journal")
             }
             if (meta.isNotEmpty()) {
@@ -331,7 +378,7 @@ private fun IntentionRow(
                         Icon(
                             painter = painterResource(R.drawable.ic_clock),
                             contentDescription = null,
-                            tint = p.textTertiary,
+                            tint = if (overdue) p.warning else p.textTertiary,
                             modifier = Modifier.size(12.dp),
                         )
                         Spacer(Modifier.width(5.dp))
@@ -339,7 +386,98 @@ private fun IntentionRow(
                     Text(
                         text = meta.joinToString(" · "),
                         style = type.meta,
+                        color = if (overdue) p.warning else p.textTertiary,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The edit sheet — same frosted-dialog pattern as the model-delete
+ * confirmation. Title plus a reminder pick; leaving the pills untouched
+ * keeps the stored reminder, "No reminder" clears it.
+ */
+@Composable
+private fun EditIntentionDialog(
+    task: TaskEntity,
+    onDismiss: () -> Unit,
+    onSave: (title: String, remindAt: Long?) -> Unit,
+) {
+    val p = Chron.palette
+    val type = Chron.type
+    var title by remember { mutableStateOf(task.title) }
+    // Null = pills untouched — the stored remindAt survives the save.
+    // An explicit "No reminder" pick resolves to null and clears it.
+    var reminderPick by remember { mutableStateOf<ReminderChoice?>(null) }
+    fun resolvedRemindAt(): Long? {
+        val pick = reminderPick ?: return task.remindAt
+        return pick.resolve(LocalDateTime.now())?.toEpochMs()
+    }
+    Dialog(onDismissRequest = onDismiss) {
+        GlassSurface(
+            level = SurfaceLevel.Elevated,
+            shape = RoundedCornerShape(Radius.md),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.padding(Spacing.x6)) {
+                Text(
+                    text = "Edit intention",
+                    style = type.headline,
+                    color = p.textPrimary,
+                )
+                Spacer(Modifier.height(Spacing.x4))
+                FrostedTextField(
+                    value = title,
+                    onChange = { title = it },
+                    placeholder = "Intention",
+                    singleLine = true,
+                    imeAction = ImeAction.Done,
+                    onImeAction = {
+                        if (title.isNotBlank()) {
+                            onSave(title, resolvedRemindAt())
+                        }
+                    },
+                )
+                if (reminderPick == null && task.remindAt != null) {
+                    Spacer(Modifier.height(Spacing.x3))
+                    Text(
+                        text = "Reminder — " + formatReminder(task.remindAt),
+                        style = type.meta,
                         color = p.textTertiary,
+                    )
+                }
+                Spacer(Modifier.height(Spacing.x3))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ReminderChoice.entries.forEach { choice ->
+                        ChoicePill(
+                            label = choice.label,
+                            selected = choice == reminderPick,
+                            onClick = {
+                                reminderPick =
+                                    if (reminderPick == choice) null else choice
+                            },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(Spacing.x6))
+                Row(
+                    horizontalArrangement = Arrangement.End,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    GhostButton(label = "Cancel", onClick = onDismiss)
+                    GhostButton(
+                        label = "Save",
+                        onClick = {
+                            if (title.isBlank()) return@GhostButton
+                            onSave(title, resolvedRemindAt())
+                        },
+                        color = p.accent,
                     )
                 }
             }

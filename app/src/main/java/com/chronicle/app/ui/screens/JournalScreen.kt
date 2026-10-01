@@ -1,7 +1,12 @@
 package com.chronicle.app.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -81,6 +86,42 @@ fun JournalScreen(viewModel: JournalViewModel, onOpenToday: () -> Unit) {
                 modifier = Modifier.semantics { heading() },
             )
             Spacer(Modifier.height(Spacing.x6))
+        }
+
+        // ————— Undo-delete: a quiet pill while the window is open —————
+        item(key = "undo-delete") {
+            AnimatedVisibility(
+                visible = state.pendingDelete != null,
+                enter = fadeIn(tween(ChronicleMotion.MICRO)) +
+                    expandVertically(tween(ChronicleMotion.MICRO)),
+                exit = fadeOut(tween(ChronicleMotion.MICRO)) +
+                    shrinkVertically(tween(ChronicleMotion.MICRO)),
+            ) {
+                GlassSurface(
+                    level = SurfaceLevel.Frosted,
+                    shape = RoundedCornerShape(Radius.pill),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = Spacing.x4),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(start = Spacing.x4),
+                    ) {
+                        Text(
+                            text = "Entry deleted.",
+                            style = Chron.type.meta,
+                            color = Chron.palette.textSecondary,
+                            modifier = Modifier.weight(1f),
+                        )
+                        GhostButton(
+                            label = "Undo",
+                            onClick = viewModel::undoDelete,
+                            color = Chron.palette.accent,
+                        )
+                    }
+                }
+            }
         }
 
         if (state.days.isEmpty()) {

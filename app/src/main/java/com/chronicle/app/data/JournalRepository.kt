@@ -66,6 +66,13 @@ class JournalRepository(private val entryDao: EntryDao) {
 
     suspend fun delete(id: Long) = entryDao.deleteById(id)
 
+    /**
+     * Undo-delete: re-inserts a removed row with its original id and fields
+     * intact (the caller held onto the entity). The audio file is untouched
+     * by delete, so a restored take still points at real audio.
+     */
+    suspend fun restore(entry: EntryEntity) = entryDao.insertPreservingId(entry)
+
     companion object {
         const val KIND_VOICE = "voice"
         const val KIND_TEXT = "text"

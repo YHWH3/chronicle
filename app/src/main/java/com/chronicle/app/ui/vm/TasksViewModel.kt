@@ -103,11 +103,16 @@ class TasksViewModel(
             val nowDone = !task.done
             taskRepository.setDone(task, nowDone)
             if (nowDone) {
+                // Completing kills both the scheduled alarm AND any posted
+                // notification — leaving either behind is a ghost reminder.
                 reminders.cancelTask(task.id)
                 reminders.cancelNotification(task.id)
             } else {
+                // Un-completing revives a future reminder: clear the
+                // delivery marker so it may fire again, then re-arm.
                 task.remindAt?.let {
                     if (it > System.currentTimeMillis()) {
+                        taskRepository.clearNotified(task.id)
                         reminders.scheduleTask(task.id, task.title, it)
                     }
                 }
@@ -115,8 +120,30 @@ class TasksViewModel(
         }
     }
 
+    /**
+     * Edit sheet commit — title and/or reminder time. The DAO clears
+     * notifiedAt on every edit, so a moved reminder re-delivers; the stale
+     * alarm and any posted notification are torn down first, then the new
+     * time is armed. Editing a done task leaves it done.
+     */
+    fun updateTask(id: Long, title: String, remindAt: Long?) {
+        if (title.isBlank()) return
+        viewModelScope.launch {
+            reminders.cancelTask(id)
+            reminders.cancelNotification(id)
+            taskRepository.updateDetails(id, title, remindAt)
+            if (remindAt != null && remindAt > System.currentTimeMillis()) {
+                reminders.scheduleTask(id, title.trim(), remindAt)
+                if (!reminders.notificationsEnabled()) {
+                    uiMessages.send(UiMessage.NotificationsOff)
+                }
+            }
+        }
+    }
+
     fun delete(task: TaskEntity) {
         viewModelScope.launch {
+            // Same hygiene as completing — alarm and notification both go.
             reminders.cancelTask(task.id)
             reminders.cancelNotification(task.id)
             taskRepository.delete(task.id)

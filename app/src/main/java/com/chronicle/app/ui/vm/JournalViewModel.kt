@@ -7,6 +7,8 @@ import com.chronicle.app.core.UiMessage
 import com.chronicle.app.core.UiMessageBus
 import com.chronicle.app.core.safeSuspend
 import com.chronicle.app.data.JournalRepository
+import com.chronicle.app.data.TaskRepository
+import com.chronicle.app.data.db.EntryEntity
 import com.chronicle.app.data.db.TRANSCRIPT_FAILED
 import com.chronicle.app.data.db.TRANSCRIPT_PENDING
 import com.chronicle.app.data.db.TRANSCRIPT_READY
@@ -33,6 +35,11 @@ data class JournalUiState(
     val canRetranscribe: Boolean = false,
     /** Entries currently being re-transcribed — guards double-taps. */
     val transcribingIds: Set<Long> = emptySet(),
+    /**
+     * The most recently deleted row, held for undo. The DB row is gone; the
+     * audio file still exists until the undo window closes.
+     */
+    val pendingDelete: EntryEntity? = null,
 )
 
 class JournalViewModel(
@@ -40,6 +47,12 @@ class JournalViewModel(
     private val player: EntryPlayer,
     private val wavTranscriber: WavTranscriber,
     private val uiMessages: UiMessageBus,
+    /**
+     * Nullable so existing call sites compile before wiring lands —
+     * sourceEntryId detachment activates once the nav host passes the
+     * task repository in.
+     */
+    private val taskRepository: TaskRepository? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(JournalUiState())
@@ -108,14 +121,25 @@ class JournalViewModel(
         }
     }
 
+    /**
+     * Soft delete: the row disappears at once but the entity is kept for
+     * undo and the audio file is NOT removed yet. The undo window closes —
+     * and the file is finally deleted — on the next delete or when the VM
+     * is cleared (leaving the screen). Chosen over a timer: there is no
+     * clock to race, and a take can never be lost while its undo is shown.
+     */
     fun delete(entry: JournalEntry) {
         viewModelScope.launch {
             try {
                 if (player.playingPath.value == entry.audioPath) player.stop()
+                // Closing the previous undo window commits its audio file.
+                discardPendingFile()
+                val held = journalRepository.byId(entry.id)
                 journalRepository.delete(entry.id)
-                entry.audioPath?.let { path ->
-                    runCatching { java.io.File(path).delete() }
-                }
+                // Intentions extracted from the entry stand on their own —
+                // just stop pointing at a row that's gone.
+                taskRepository?.clearSourceEntry(entry.id)
+                _state.value = _state.value.copy(pendingDelete = held)
             } catch (ce: CancellationException) {
                 throw ce
             } catch (t: Throwable) {
@@ -124,5 +148,36 @@ class JournalViewModel(
         }
     }
 
-    override fun onCleared() = player.stop()
+    /**
+     * Restores the soft-deleted row — same id, same audio path, transcript
+     * status untouched. Tasks that referenced it stay detached (their
+     * sourceEntryId was cleared on delete and isn't resurrected).
+     */
+    fun undoDelete() {
+        val held = _state.value.pendingDelete ?: return
+        _state.value = _state.value.copy(pendingDelete = null)
+        viewModelScope.launch {
+            try {
+                journalRepository.restore(held)
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                uiMessages.send(UiMessage.SaveFailed)
+            }
+        }
+    }
+
+    /** The undo window is over — the kept audio file can finally go. */
+    private fun discardPendingFile() {
+        val held = _state.value.pendingDelete ?: return
+        _state.value = _state.value.copy(pendingDelete = null)
+        held.audioPath?.let { path ->
+            runCatching { java.io.File(path).delete() }
+        }
+    }
+
+    override fun onCleared() {
+        player.stop()
+        discardPendingFile()
+    }
 }
