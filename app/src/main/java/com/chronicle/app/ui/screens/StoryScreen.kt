@@ -21,7 +21,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -99,7 +103,7 @@ private fun writeShareFile(context: Context, markdown: String): File? =
     }.getOrNull()
 
 @Composable
-fun StoryScreen(viewModel: StoryViewModel, onOpenChapter: (Int) -> Unit) {
+fun StoryScreen(viewModel: StoryViewModel, onOpenChapter: (LocalDate) -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val story = state.story
     val context = LocalContext.current
@@ -138,8 +142,12 @@ fun StoryScreen(viewModel: StoryViewModel, onOpenChapter: (Int) -> Unit) {
             Spacer(Modifier.height(Spacing.x6))
         }
 
-        val chapters = story?.chapters.orEmpty()
-        if (chapters.isEmpty()) {
+        // Each chapter carries its week-start Monday — the stable key the
+        // reader route is built on, immune to renumbering after a delete.
+        val located = story?.chapters.orEmpty().mapIndexedNotNull { i, chapter ->
+            state.chapterWeeks.getOrNull(i)?.let { chapter to it }
+        }
+        if (located.isEmpty()) {
             item {
                 Spacer(Modifier.height(96.dp))
                 Text(
@@ -156,13 +164,13 @@ fun StoryScreen(viewModel: StoryViewModel, onOpenChapter: (Int) -> Unit) {
             }
         } else {
             // The newest chapter is the hero; the rest float as an index.
-            val current = chapters.last()
-            val previous = chapters.dropLast(1).asReversed()
+            val current = located.last()
+            val previous = located.dropLast(1).asReversed()
 
-            item(key = "hero-${current.number}") {
+            item(key = "hero-${current.second}") {
                 HeroChapterCard(
-                    chapter = current,
-                    onClick = { onOpenChapter(current.number) },
+                    chapter = current.first,
+                    onClick = { onOpenChapter(current.second) },
                     modifier = Modifier.animateItem(),
                 )
             }
@@ -171,11 +179,11 @@ fun StoryScreen(viewModel: StoryViewModel, onOpenChapter: (Int) -> Unit) {
                 item {
                     Spacer(Modifier.height(Spacing.x10))
                 }
-                items(previous, key = { "prev-${it.number}" }) { chapter ->
+                items(previous, key = { "prev-${it.second}" }) { (chapter, weekStart) ->
                     Column(Modifier.animateItem()) {
                         ChapterIndexRow(
                             chapter = chapter,
-                            onClick = { onOpenChapter(chapter.number) },
+                            onClick = { onOpenChapter(weekStart) },
                         )
                         Hairline(modifier = Modifier.padding(vertical = 2.dp))
                     }
@@ -273,11 +281,22 @@ private fun ChapterIndexRow(chapter: StoryChapter, onClick: () -> Unit) {
 @Composable
 fun StoryChapterScreen(
     viewModel: StoryViewModel,
-    chapterNumber: Int,
+    weekStart: LocalDate,
     onBack: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val chapter = state.story?.chapters?.firstOrNull { it.number == chapterNumber }
+    val chapter = state.chapterAt(weekStart)
+    // Chapters regroup from live entries — if this week's chapter vanished
+    // mid-read (entries deleted), step back out once rather than strand the
+    // reader on an empty page. Waits for the first real emission so a cold
+    // start doesn't pop before the story loads.
+    var popped by remember { mutableStateOf(false) }
+    LaunchedEffect(state.story, chapter) {
+        if (!popped && state.story != null && chapter == null) {
+            popped = true
+            onBack()
+        }
+    }
     val context = LocalContext.current
     val p = Chron.palette
     val type = Chron.type

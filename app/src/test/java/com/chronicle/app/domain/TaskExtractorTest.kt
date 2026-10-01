@@ -264,4 +264,182 @@ class TaskExtractorTest {
             TaskExtractor.extract("Remind me to leave at 5.30pm.", friday9am)[0].remindAt,
         )
     }
+
+    // ————— BE-06: day-part phrases constrain bare clock hours —————
+
+    @Test
+    fun `morning keeps a bare hour in am`() {
+        // "at 7" alone reads as 19:00 — "morning" overrules that heuristic.
+        assertEquals(
+            LocalDateTime.of(2026, 9, 26, 7, 0),
+            TaskExtractor.extract("Remind me to run tomorrow morning at 7.", friday9am)[0].remindAt,
+        )
+        assertEquals(
+            LocalDateTime.of(2026, 9, 25, 8, 0),
+            TaskExtractor.extract("Remind me to stretch at 8 in the morning.", LocalDateTime.of(2026, 9, 25, 6, 0))[0].remindAt,
+        )
+    }
+
+    @Test
+    fun `afternoon pushes a bare hour into pm`() {
+        assertEquals(
+            LocalDateTime.of(2026, 9, 26, 15, 0),
+            TaskExtractor.extract("Remind me to nap tomorrow afternoon at 3.", friday9am)[0].remindAt,
+        )
+    }
+
+    @Test
+    fun `evening and night push bare hours into the night range`() {
+        assertEquals(
+            LocalDateTime.of(2026, 9, 26, 18, 0),
+            TaskExtractor.extract("Remind me to eat tomorrow evening at 6.", friday9am)[0].remindAt,
+        )
+        // Without "tonight" this hour would stay 10:00 AM.
+        assertEquals(
+            LocalDateTime.of(2026, 9, 25, 22, 0),
+            TaskExtractor.extract("Remind me to lock up tonight at 10.", friday9am)[0].remindAt,
+        )
+        assertEquals(
+            LocalDateTime.of(2026, 9, 25, 21, 0),
+            TaskExtractor.extract("Remind me to call her tonight at 9.", friday9am)[0].remindAt,
+        )
+    }
+
+    @Test
+    fun `tonight at a past hour is flagged ambiguous instead of rolled`() {
+        // "tonight" can't roll into tomorrow — the speaker's slot is unclear.
+        val late = LocalDateTime.of(2026, 9, 25, 21, 30)
+        val task = TaskExtractor.extract("Remind me to call her tonight at 9.", late)[0]
+        assertNull(task.remindAt)
+        assertTrue(task.timeAmbiguous)
+    }
+
+    @Test
+    fun `today and this-afternoon past hours are ambiguous`() {
+        assertTrue(
+            TaskExtractor.extract(
+                "Remind me to call her today at 8.",
+                friday9am,
+            )[0].timeAmbiguous,
+        )
+        val fourPm = LocalDateTime.of(2026, 9, 25, 16, 0)
+        val task = TaskExtractor.extract(
+            "Remind me to sit in the sun this afternoon at 3.",
+            fourPm,
+        )[0]
+        assertNull(task.remindAt)
+        assertTrue(task.timeAmbiguous)
+    }
+
+    @Test
+    fun `past hours without a same-day anchor still roll`() {
+        // No "today"/"tonight" — free to roll into tomorrow.
+        val task = TaskExtractor.extract("Remind me to stretch at 7am.", friday9am)[0]
+        assertEquals(LocalDateTime.of(2026, 9, 26, 7, 0), task.remindAt)
+        assertTrue(!task.timeAmbiguous)
+    }
+
+    @Test
+    fun `bare hour keeps the one-to-seven pm rule with no day-part`() {
+        // No morning/evening context → the existing 1..7 → PM heuristic stands.
+        assertEquals(
+            LocalDateTime.of(2026, 9, 25, 19, 0),
+            TaskExtractor.extract("Remind me to stretch at 7.", friday9am)[0].remindAt,
+        )
+        assertEquals(
+            LocalDateTime.of(2026, 9, 25, 10, 0),
+            TaskExtractor.extract("Remind me to stretch at 10.", LocalDateTime.of(2026, 9, 25, 8, 0))[0].remindAt,
+        )
+    }
+
+    // ————— BE-09: richer natural time phrases —————
+
+    @Test
+    fun `worded durations resolve`() {
+        assertEquals(
+            LocalDateTime.of(2026, 9, 25, 10, 0),
+            TaskExtractor.extract("Remind me to check the oven in an hour.", friday9am)[0].remindAt,
+        )
+        assertEquals(
+            LocalDateTime.of(2026, 9, 25, 9, 30),
+            TaskExtractor.extract("Remind me to stretch in half an hour.", friday9am)[0].remindAt,
+        )
+        assertEquals(
+            LocalDateTime.of(2026, 9, 25, 9, 1),
+            TaskExtractor.extract("Remind me to breathe in a minute.", friday9am)[0].remindAt,
+        )
+    }
+
+    @Test
+    fun `abbreviated duration units resolve`() {
+        assertEquals(
+            LocalDateTime.of(2026, 9, 25, 9, 5),
+            TaskExtractor.extract("Remind me to check the timer in 5 mins.", friday9am)[0].remindAt,
+        )
+        assertEquals(
+            LocalDateTime.of(2026, 9, 25, 9, 5),
+            TaskExtractor.extract("Remind me to check the timer in 5 min.", friday9am)[0].remindAt,
+        )
+        assertEquals(
+            LocalDateTime.of(2026, 9, 25, 11, 0),
+            TaskExtractor.extract("Remind me to leave in 2 hrs.", friday9am)[0].remindAt,
+        )
+        assertEquals(
+            LocalDateTime.of(2026, 9, 25, 10, 0),
+            TaskExtractor.extract("Remind me to leave in 1 hr.", friday9am)[0].remindAt,
+        )
+    }
+
+    @Test
+    fun `bare friday and this friday pick the coming friday`() {
+        val thursday = LocalDateTime.of(2026, 9, 24, 9, 0)
+        assertEquals(
+            LocalDateTime.of(2026, 9, 25, 9, 0),
+            TaskExtractor.extract("Remind me to post the letter this Friday.", thursday)[0].remindAt,
+        )
+        assertEquals(
+            LocalDateTime.of(2026, 9, 25, 9, 0),
+            TaskExtractor.extract("Remind me to post the letter Friday.", thursday)[0].remindAt,
+        )
+    }
+
+    @Test
+    fun `weekday today still anchors then rolls a week when passed`() {
+        // Said early in the day, "this Friday" can mean today.
+        val friday8am = LocalDateTime.of(2026, 9, 25, 8, 0)
+        assertEquals(
+            LocalDateTime.of(2026, 9, 25, 9, 0),
+            TaskExtractor.extract("Remind me to post the letter this Friday.", friday8am)[0].remindAt,
+        )
+        // At 9am the implied slot has passed — roll a full week, never to Saturday.
+        assertEquals(
+            LocalDateTime.of(2026, 10, 2, 9, 0),
+            TaskExtractor.extract("Remind me to post the letter on Friday.", friday9am)[0].remindAt,
+        )
+    }
+
+    @Test
+    fun `next friday is next week's`() {
+        val thursday = LocalDateTime.of(2026, 9, 24, 9, 0)
+        assertEquals(
+            LocalDateTime.of(2026, 10, 2, 9, 0),
+            TaskExtractor.extract("Remind me to post the letter next Friday.", thursday)[0].remindAt,
+        )
+        assertEquals(
+            LocalDateTime.of(2026, 10, 2, 9, 0),
+            TaskExtractor.extract("Remind me to post the letter next Friday.", friday9am)[0].remindAt,
+        )
+    }
+
+    @Test
+    fun `bare meridian time resolves without at`() {
+        assertEquals(
+            LocalDateTime.of(2026, 9, 26, 17, 0),
+            TaskExtractor.extract("Remind me to call Sam tomorrow 5pm.", friday9am)[0].remindAt,
+        )
+        assertEquals(
+            LocalDateTime.of(2026, 9, 26, 7, 0),
+            TaskExtractor.extract("Remind me to stretch, 7am.", friday9am)[0].remindAt,
+        )
+    }
 }

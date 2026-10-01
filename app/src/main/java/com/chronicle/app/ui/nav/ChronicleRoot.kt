@@ -89,6 +89,7 @@ import com.chronicle.app.ui.vm.TodayViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 
 object Routes {
     const val TODAY = "today"
@@ -104,8 +105,9 @@ object Routes {
     const val SETTINGS_MODEL = "settings/model/{kind}"
     const val SETTINGS_PRIVACY = "settings/privacy"
     const val SETTINGS_ABOUT = "settings/about"
-    const val CHAPTER = "chapter/{number}"
-    fun chapter(number: Int) = "chapter/$number"
+    /** Keyed by the chapter's week-start Monday — stable across renumbering. */
+    const val CHAPTER = "chapter/{weekStart}"
+    fun chapter(weekStart: LocalDate) = "chapter/$weekStart"
     fun settingsModel(kind: com.chronicle.app.mind.ModelKind) = "settings/model/${kind.name}"
 }
 
@@ -285,13 +287,25 @@ fun ChronicleRoot(container: AppContainer) {
                     }
                     composable(
                         Routes.CHAPTER,
-                        arguments = listOf(navArgument("number") { type = NavType.IntType }),
+                        arguments = listOf(
+                            navArgument("weekStart") { type = NavType.StringType },
+                        ),
                     ) { entry ->
-                        val number = entry.arguments?.getInt("number") ?: 1
-                        val vm: StoryViewModel = viewModel(factory = vmFactory {
-                            StoryViewModel(container.journalRepository)
-                        })
-                        StoryChapterScreen(vm, number, onBack = { navController.popBackStack() })
+                        val weekStart = entry.arguments?.getString("weekStart")
+                            ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                        if (weekStart == null) {
+                            // Unparseable week key — nothing to read; back out.
+                            LaunchedEffect(Unit) { navController.popBackStack() }
+                        } else {
+                            val vm: StoryViewModel = viewModel(factory = vmFactory {
+                                StoryViewModel(container.journalRepository)
+                            })
+                            StoryChapterScreen(
+                                vm,
+                                weekStart,
+                                onBack = { navController.popBackStack() },
+                            )
+                        }
                     }
                 }
             }
