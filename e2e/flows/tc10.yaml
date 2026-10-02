@@ -19,7 +19,7 @@ appId: com.chronicle.app
 - assertVisible: '≈ 487 MB'
 - assertVisible: 'Runs entirely on this phone'
 - assertVisible: 'Download · ≈ 487 MB'
-- assertVisible: 'Best on Wi-Fi\.'
+- assertVisible: 'Best on Wi-Fi\. Interrupted downloads resume\.'
 # "Download source" is now collapsed behind an Edit toggle.
 - tapOn: 'Edit'
 - assertVisible: 'https://github.com/k2-fsa.*'

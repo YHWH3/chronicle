@@ -13,7 +13,9 @@ import javax.crypto.spec.GCMParameterSpec
 
 private const val TAG = "SecretStore"
 private const val ANDROID_KEYSTORE = "AndroidKeyStore"
-private const val KEY_ALIAS = "chronicle_secret_v1"
+// v2: the v1 spec lacked setRandomizedEncryptionRequired(false), which made
+// every caller-IV Cipher.init throw InvalidAlgorithmParameterException.
+private const val KEY_ALIAS = "chronicle_secret_v2"
 private const val GCM_TAG_BITS = 128
 private const val IV_BYTES = 12 // 96-bit nonce — the GCM-safe size
 
@@ -92,6 +94,9 @@ class SecretStore private constructor(private val cipher: AesGcmCipher) {
                     .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                     .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                     .setKeySize(256)
+                    // AesGcmCipher supplies a fresh SecureRandom 96-bit nonce
+                    // per seal — keystore must accept caller-provided IVs.
+                    .setRandomizedEncryptionRequired(false)
                     .build(),
             )
             return generator.generateKey()

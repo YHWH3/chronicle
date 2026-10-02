@@ -4,5 +4,5 @@ appId: com.chronicle.app
 - waitForAnimationToEnd
 - tapOn: '^Intentions$'
 - assertVisible: 'Stretch'
-- assertVisible: '(Today|Tomorrow) · 09:00[\s\S]*'
+- assertVisible: 'Tomorrow · 21:00[\s\S]*'
 - takeScreenshot: tc12-stretch

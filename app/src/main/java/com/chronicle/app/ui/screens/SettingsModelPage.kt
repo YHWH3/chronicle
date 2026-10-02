@@ -65,9 +65,14 @@ fun SettingsModelPage(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val modelState = state.models[kind] ?: ModelState.NotInstalled
-    val url = when (kind) {
+    val persistedUrl = when (kind) {
         ModelKind.PARAKEET_STT -> state.parakeetUrl
         ModelKind.LOCAL_LLM -> state.llmUrl
+    }
+    var url by remember(kind) { mutableStateOf(persistedUrl) }
+    var urlFocused by remember(kind) { mutableStateOf(false) }
+    LaunchedEffect(persistedUrl, urlFocused) {
+        if (!urlFocused) url = persistedUrl
     }
     // Real size of the default archive when there is one; honest "varies" otherwise.
     val sizeLabel = formatSize(
@@ -203,6 +208,7 @@ fun SettingsModelPage(
                 FrostedTextField(
                     value = url,
                     onChange = {
+                        url = it
                         when (kind) {
                             ModelKind.PARAKEET_STT ->
                                 viewModel.setModelUrls(it, state.llmUrl)
@@ -212,6 +218,7 @@ fun SettingsModelPage(
                     },
                     placeholder = "Model download URL",
                     singleLine = true,
+                    onFocusChange = { urlFocused = it },
                 )
                 Spacer(Modifier.height(Spacing.x2))
                 Text(

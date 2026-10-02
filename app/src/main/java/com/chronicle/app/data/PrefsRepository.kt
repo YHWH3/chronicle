@@ -204,7 +204,12 @@ class PrefsRepository(
                     ""
                 }
         }
-        if (store != null) pendingSeal.add(Pair(key, ENC_PREFIX + store.encrypt(raw)))
+        if (store != null) {
+            val sealed = runCatching { ENC_PREFIX + store.encrypt(raw) }
+                .onFailure { Log.w(TAG, "secret seal failed — staying plaintext", it) }
+                .getOrNull()
+            if (sealed != null) pendingSeal.add(Pair(key, sealed))
+        }
         return raw
     }
 
@@ -212,7 +217,9 @@ class PrefsRepository(
     private fun seal(value: String): String {
         val store = secretStore
         return if (value.isEmpty() || store == null) value
-        else ENC_PREFIX + store.encrypt(value)
+        else runCatching { ENC_PREFIX + store.encrypt(value) }
+            .onFailure { Log.w(TAG, "secret seal failed — staying plaintext", it) }
+            .getOrDefault(value)
     }
 
     /** One edit per emission batch; failures only delay the migration. */

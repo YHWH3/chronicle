@@ -3,17 +3,17 @@ appId: com.chronicle.app
 - waitForAnimationToEnd
 - tapOn: '^Write$'
 - tapOn: 'Begin anywhere. The day will shape itself.'
-- inputText: 'remind me to stretch tonight at 9'
+- inputText: 'remind me to stretch tomorrow at 9pm'
 - tapOn: '^Keep$'
 - takeScreenshot: tc12-hint
-# "tonight at 9" -> 09:00, rolled to tomorrow if 9am has passed.
+# "tomorrow at 9pm" -> 21:00 tomorrow — always future, meridian-explicit.
 - assertVisible: 'Kept\.'
 - assertVisible: '1 reminder set'
 - assertVisible: 'Read by Quiet parser'
 - assertVisible: 'Stretch'
-- assertVisible: '(Today|Tomorrow) · 09:00'
+- assertVisible: 'Tomorrow · 21:00'
 - takeScreenshot: tc12-kept
 - tapOn: '^Intentions$'
 - assertVisible: 'Stretch'
-- assertVisible: '(Today|Tomorrow) · 09:00[\s\S]*'
+- assertVisible: 'Tomorrow · 21:00[\s\S]*'
 - takeScreenshot: tc12-stretch

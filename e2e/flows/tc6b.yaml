@@ -9,5 +9,5 @@ appId: com.chronicle.app
 - assertVisible: '[0-9]+ entries · [0-9]+ words'
 - assertVisible: 'On [A-Z][a-z]+day, the [\s\S]*'
 - assertVisible: '[\s\S]*Walked the coast road, cold wind\.[\s\S]*'
-- assertVisible: '[\s\S]*Later, remind me to call the dentist[\s\S]*'
+- assertVisible: '[\s\S]*[Rr]emind me to call the dentist[\s\S]*'
 - pressKey: back
