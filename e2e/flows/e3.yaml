@@ -10,6 +10,7 @@ appId: com.chronicle.app
 - assertVisible: 'Stretch'
 - assertVisible: '(Today|Tomorrow) · 09:00[\s\S]*'
 - assertVisible: 'Water the fern'
-- assertVisible: 'Tomorrow · 09:00[\s\S]*'
+# tc4 sets this "tomorrow" — a suite crossing midnight sees it as "Today".
+- assertVisible: '(Today|Tomorrow) · 09:00[\s\S]*'
 - takeScreenshot: e3-intentions
 - tapOn: '^Today$'
