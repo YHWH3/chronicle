@@ -40,8 +40,8 @@ class MindResultParserTest {
     fun `natural language remindAt falls back to deterministic resolver`() {
         val reply = """{"tasks":[{"title":"Take out bins","remindAt":"tomorrow 5pm"}]}"""
         val result = MindResultParser.parse(reply, friday9am)!!
-        // "tomorrow" resolves to next day 09:00 through the deterministic path.
-        assertEquals(LocalDateTime.of(2026, 9, 26, 9, 0), result.tasks[0].remindAt)
+        // The deterministic path now resolves the bare meridian too: 17:00.
+        assertEquals(LocalDateTime.of(2026, 9, 26, 17, 0), result.tasks[0].remindAt)
     }
 
     @Test

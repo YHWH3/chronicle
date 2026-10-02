@@ -6,7 +6,7 @@ appId: com.chronicle.app
 - assertVisible: '^Write$'
 - tapOn: '^Write$'
 - tapOn: 'Begin anywhere. The day will shape itself.'
-- inputText: 'remind me to stretch tonight at 9'
+- inputText: 'remind me to stretch tomorrow at 9pm'
 - tapOn: '^Keep$'
 - takeScreenshot: tc12-hint
 - assertVisible: 'Kept\.'
@@ -15,5 +15,5 @@ appId: com.chronicle.app
 - takeScreenshot: tc12-kept
 - tapOn: '^Intentions$'
 - assertVisible: 'Stretch'
-- assertVisible: '(Today|Tomorrow) · 09:00[\s\S]*'
+- assertVisible: 'Tomorrow · 21:00[\s\S]*'
 - takeScreenshot: tc12-stretch

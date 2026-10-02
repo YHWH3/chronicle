@@ -30,7 +30,12 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (taskId <= 0L) return@launch
                 val repo = (context.applicationContext as ChronicleApp).container.taskRepository
                 val task = repo.byId(taskId) ?: return@launch
-                if (!task.done) {
+                if (task.done) return@launch
+                // Claim delivery BEFORE posting: notifiedAt is the once-only
+                // dedupe. If a reconcile (or a stale duplicate alarm) already
+                // claimed this fire, markNotified returns false and we stay
+                // silent — at most one notification per reminder, ever.
+                if (repo.markNotified(taskId, System.currentTimeMillis())) {
                     Notifier.notifyTask(
                         context,
                         taskId,

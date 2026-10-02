@@ -5,7 +5,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -22,7 +22,7 @@ import com.chronicle.app.ui.vm.SettingsViewModel
 
 @Composable
 fun SettingsPrivacyPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     SettingsPage(title = "Privacy", onBack = onBack) {
         Text(
             text = if (state.mindLeavesPhone) {
@@ -41,11 +41,22 @@ fun SettingsPrivacyPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
         )
         PrivacyItem(
             label = "Your entries",
-            body = "Written words are stored only on this phone, in the journal database.",
+            body = if (state.mindLeavesPhone) {
+                "Written words live in the journal database on this phone. " +
+                    "With a cloud mind configured, an entry's text is also sent " +
+                    "to that service each time you save."
+            } else {
+                "Written words are stored only on this phone, in the journal database."
+            },
         )
         PrivacyItem(
             label = "Finding intentions",
             body = mindLine(state),
+        )
+        PrivacyItem(
+            label = "Your keys",
+            body = "API keys for cloud minds are stored on this phone, " +
+                "encrypted via Android Keystore.",
         )
         PrivacyItem(
             label = "Downloads",
@@ -103,15 +114,17 @@ private fun mindLine(state: SettingsUiState): String = when (state.mindBackend) 
         } else {
             "Entry text is sent to OpenRouter " +
                 "(model ${state.openRouterModel.removeSuffix(":free")}) when you save. " +
-                "If the request fails, the Quiet parser reads them here instead."
+                "If it fails or takes more than 20 seconds, " +
+                "the Quiet parser reads them here instead."
         }
     MindBackend.CUSTOM ->
         if (state.customBaseUrl.isBlank() || state.customModel.isBlank()) {
             "A custom endpoint is selected but has no URL or model, " +
                 "so the Quiet parser runs on this phone instead."
         } else {
-            "Entry text is sent to ${customHost(state.customBaseUrl)} when you save. " +
-                "If the request fails, the Quiet parser reads them here instead."
+            "Entry text is sent to ${customHost(state.customBaseUrl)} when you save — " +
+                "HTTPS only. If it fails or takes more than 20 seconds, " +
+                "the Quiet parser reads them here instead."
         }
 }
 

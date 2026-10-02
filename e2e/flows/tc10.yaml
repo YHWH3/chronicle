@@ -16,18 +16,18 @@ appId: com.chronicle.app
 - assertVisible: 'Until it''s installed, Chronicle uses Android''s recogniser\.'
 - tapOn: 'Parakeet TDT 0.6B'
 - assertVisible: 'On-device speech transcription\.'
-- assertVisible: '≈ 250 MB'
+- assertVisible: '≈ 487 MB'
 - assertVisible: 'Runs entirely on this phone'
-- assertVisible: 'Download · 250 MB'
-- assertVisible: 'Best on Wi-Fi\.'
+- assertVisible: 'Download · ≈ 487 MB'
+- assertVisible: 'Best on Wi-Fi\. Interrupted downloads resume\.'
 # "Download source" is now collapsed behind an Edit toggle.
 - tapOn: 'Edit'
 - assertVisible: 'https://github.com/k2-fsa.*'
 - takeScreenshot: tc10-ear
 - tapOn: 'Hide'
-- tapOn: 'Download · 250 MB'
+- tapOn: 'Download · ≈ 487 MB'
 - assertVisible: 'Cancel'
 - takeScreenshot: tc10-downloading
 - tapOn: 'Cancel'
-- assertVisible: 'Download · 250 MB'
+- assertVisible: 'Download · ≈ 487 MB'
 - takeScreenshot: tc10-cancelled

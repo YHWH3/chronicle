@@ -9,19 +9,25 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 
-/** Re-arms reminders after a reboot — alarms don't survive restarts. */
+/**
+ * Reconciles reminders after anything that invalidates alarms: a reboot
+ * (alarms don't survive restarts) or a time/timezone/date change (a wall-
+ * clock reminder may now be early, late, or already past). The reconcile
+ * pass fires missed notifications, re-arms future ones, and repairs
+ * deliveries whose time was edited forward — one code path for all of it.
+ */
 class BootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        if (intent.action !in HANDLED_ACTIONS) return
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val container = (context.applicationContext as ChronicleApp).container
-                val now = System.currentTimeMillis()
-                for (task in container.taskRepository.pendingReminders(now)) {
-                    ReminderScheduler.scheduleTask(context, task.id, task.title, task.remindAt!!)
-                }
+                ReminderReconciler(
+                    container.taskRepository,
+                    container.reminderGateway,
+                ).reconcile()
                 val prefs = container.prefsRepository.prefs.first()
                 if (prefs.dailyNudgeEnabled) {
                     ReminderScheduler.scheduleDailyNudge(context, prefs.dailyNudgeMinutes)
@@ -30,5 +36,14 @@ class BootReceiver : BroadcastReceiver() {
                 pending.finish()
             }
         }
+    }
+
+    private companion object {
+        val HANDLED_ACTIONS = setOf(
+            Intent.ACTION_BOOT_COMPLETED,
+            Intent.ACTION_TIME_CHANGED,       // android.intent.action.TIME_SET
+            Intent.ACTION_TIMEZONE_CHANGED,
+            Intent.ACTION_DATE_CHANGED,
+        )
     }
 }

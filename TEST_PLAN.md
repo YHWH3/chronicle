@@ -52,13 +52,13 @@
 ## TC10 — Settings: The ear (STT engines) [new in 209f5a8]
 - Settings → "The ear — speech to text" section.
 - **Assert:** chips "SYSTEM (ON-DEVICE)" + "PARAKEET TDT 0.6B"; System selected → italic "Android's recognizer, kept on-device. Nothing to download."
-- Tap PARAKEET → italic "NVIDIA's Parakeet — sharper ears, transcribes when the take ends."; ModelRow card appears: title "Parakeet TDT 0.6B · speech to text", meta "~250 MB", "GET IT" action, "Model download URL" field.
-- Tap GET IT once → state flips to Downloading: "%"/"N MB" in brass + "CANCEL" + hairline progress bar. Tap CANCEL immediately → back to "GET IT" (do NOT wait for 250MB on TCG).
+- Tap PARAKEET → italic "NVIDIA's Parakeet — sharper ears, transcribes when the take ends."; ModelRow card appears: title "Parakeet TDT 0.6B · speech to text", meta "≈ 487 MB", "GET IT" action, "Model download URL" field.
+- Tap GET IT once → state flips to Downloading: "%"/"N MB" in brass + "CANCEL" + hairline progress bar. Tap CANCEL immediately → back to "GET IT" (do NOT wait for 487MB on TCG).
 
 ## TC11 — Settings: The mind (backends) [new in 209f5a8]
 - Settings → "The mind — words into meaning".
 - **Assert:** chips "QUIET PARSER" / "ON-DEVICE MODEL" / "OPENROUTER" / "CUSTOM ENDPOINT"; Quiet parser default → "A deterministic reader — fast, private, no model needed."
-- ON-DEVICE → "Llama 3.2 3B runs entirely on this phone. Words never leave." + ModelRow "Llama 3.2 3B · on-device mind" / "~2 GB" + gated note "accept Meta's licence on huggingface.co". Tap GET IT → Downloading UI → CANCEL.
+- ON-DEVICE → "Llama 3.2 3B runs entirely on this phone. Words never leave." + ModelRow "Llama 3.2 3B · on-device mind" / "≈ 2–3 GB" + gated note "accept Meta's licence on huggingface.co". Tap GET IT → Downloading UI → CANCEL.
 - OPENROUTER → masked "OpenRouter API key (sk-or-…)" field + "FREE MODELS" chips; type a dummy key → masks; pick a model chip.
 - CUSTOM → fields "Base URL (https://api.openai.com/v1)", "Model (gpt-4o-mini, …)", "API key (optional for some endpoints)" (last masked).
 - Back to QUIET PARSER → all panels collapse, italic baseline text.

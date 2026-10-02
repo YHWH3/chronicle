@@ -3,6 +3,7 @@ package com.chronicle.app.media
 import android.content.Context
 import android.media.MediaRecorder
 import android.os.Build
+import android.os.SystemClock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -12,10 +13,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
+import java.io.IOException
 
 /**
  * Records voice notes to .m4a under filesDir/recordings and exposes a rolling
  * amplitude window for the waveform — [amplitudes] keeps the last [BARS] bars.
+ *
+ * [start] never throws — it returns a typed [RecordStart] the UI can react
+ * to. [stop] suspends so the amplitude poller is fully joined before the
+ * recorder is released.
  */
 class VoiceRecorder(private val context: Context, private val scope: CoroutineScope) : TakeRecorder {
 
@@ -32,11 +38,12 @@ class VoiceRecorder(private val context: Context, private val scope: CoroutineSc
 
     override val isRecording: Boolean get() = recorder != null
 
-    override fun start(): File {
+    override fun start(): RecordStart {
         val dir = File(context.filesDir, "recordings").apply { mkdirs() }
         val file = File(dir, "note_${System.currentTimeMillis()}.m4a")
         outputFile = file
-        startedAt = System.currentTimeMillis()
+        // Monotonic — wall-clock edits can't bend the duration.
+        startedAt = SystemClock.elapsedRealtime()
 
         val r = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             MediaRecorder(context)
@@ -53,11 +60,23 @@ class VoiceRecorder(private val context: Context, private val scope: CoroutineSc
             r.setOutputFile(file.absolutePath)
             r.prepare()
             r.start()
-        } catch (e: Exception) {
+        } catch (e: SecurityException) {
             r.release()
-            file.delete()
-            outputFile = null
-            throw e
+            discard(file)
+            return RecordStart.PermissionMissing
+        } catch (e: IllegalStateException) {
+            // start() on a busy/mis-sequenced recorder — mic is held elsewhere.
+            r.release()
+            discard(file)
+            return RecordStart.MicrophoneBusy
+        } catch (e: IOException) {
+            r.release()
+            discard(file)
+            return RecordStart.Unavailable
+        } catch (e: RuntimeException) {
+            r.release()
+            discard(file)
+            return RecordStart.InitFailed(e.message ?: "MediaRecorder start failed")
         }
         recorder = r
 
@@ -66,24 +85,27 @@ class VoiceRecorder(private val context: Context, private val scope: CoroutineSc
         pollJob = scope.launch(Dispatchers.Default) {
             while (isActive) {
                 delay(90)
-                val max = recorder?.maxAmplitude ?: 0
+                // Guarded — cancel()/stop() may race this read with release().
+                val max = runCatching { recorder?.maxAmplitude ?: 0 }.getOrDefault(0)
                 val normalized = (max / 32767f).coerceIn(0.04f, 1f)
                 val current = _amplitudes.value.toMutableList()
                 current.removeAt(0)
                 current.add(normalized)
                 _amplitudes.value = current
-                _elapsedMs.value = System.currentTimeMillis() - startedAt
+                _elapsedMs.value = SystemClock.elapsedRealtime() - startedAt
             }
         }
-        return file
+        return RecordStart.Started(file)
     }
 
     /** Stops and returns the file + duration, or null if nothing was captured. */
-    override fun stop(): Pair<File, Long>? {
+    override suspend fun stop(): Pair<File, Long>? {
         val file = outputFile ?: return null
         val r = recorder ?: return null
-        val duration = System.currentTimeMillis() - startedAt
+        val duration = SystemClock.elapsedRealtime() - startedAt
+        // Cancel AND join — the poller can be mid-maxAmplitude when release lands.
         pollJob?.cancel()
+        pollJob?.join()
         try {
             r.stop()
         } catch (_: RuntimeException) {
@@ -109,6 +131,11 @@ class VoiceRecorder(private val context: Context, private val scope: CoroutineSc
         outputFile = null
         _amplitudes.value = List(BARS) { 0f }
         _elapsedMs.value = 0L
+    }
+
+    private fun discard(file: File) {
+        file.delete()
+        outputFile = null
     }
 
     companion object {

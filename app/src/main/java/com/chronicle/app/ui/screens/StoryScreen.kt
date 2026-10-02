@@ -1,5 +1,6 @@
 package com.chronicle.app.ui.screens
 
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.clickable
@@ -20,8 +21,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -32,6 +36,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chronicle.app.R
 import com.chronicle.app.domain.Story
 import com.chronicle.app.domain.StoryChapter
@@ -46,20 +52,59 @@ import com.chronicle.app.ui.design.Spacing
 import com.chronicle.app.ui.design.SurfaceLevel
 import com.chronicle.app.ui.theme.Fraunces
 import com.chronicle.app.ui.vm.StoryViewModel
+import java.io.File
+import java.time.LocalDate
 
-/** Shares the whole story as Markdown — one intent for overview and reading. */
+/** Above this size the story is shared file-only; EXTRA_TEXT is skipped. */
+private const val SHARE_TEXT_LIMIT = 50_000
+
+/**
+ * Shares the whole story as a Markdown file via FileProvider — big stories
+ * exceed EXTRA_TEXT binder limits. Small stories also keep an EXTRA_TEXT
+ * copy for receivers that ignore streams.
+ */
 private fun shareStory(context: Context, story: Story?) {
+    val markdown = story?.toMarkdown().orEmpty()
+    val uri = writeShareFile(context, markdown)?.let { file ->
+        runCatching {
+            FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file,
+            )
+        }.getOrNull()
+    }
     val intent = Intent(Intent.ACTION_SEND).apply {
-        type = "text/plain"
-        putExtra(Intent.EXTRA_TEXT, story?.toMarkdown().orEmpty())
+        type = "text/markdown"
         putExtra(Intent.EXTRA_TITLE, "The Story So Far")
+        if (uri != null) {
+            putExtra(Intent.EXTRA_STREAM, uri)
+            // Some receivers read the grant from ClipData rather than the flag.
+            clipData = ClipData.newRawUri("story", uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            if (markdown.length <= SHARE_TEXT_LIMIT) {
+                putExtra(Intent.EXTRA_TEXT, markdown)
+            }
+        } else {
+            // File write failed — degrade to text, capped, rather than nothing.
+            putExtra(Intent.EXTRA_TEXT, markdown.take(SHARE_TEXT_LIMIT))
+        }
     }
     context.startActivity(Intent.createChooser(intent, "Share the story"))
 }
 
+/** Writes the story to `cacheDir/share/story-<today>.md`, clearing old shares. */
+private fun writeShareFile(context: Context, markdown: String): File? =
+    runCatching {
+        val dir = File(context.cacheDir, "share")
+        dir.mkdirs()
+        dir.listFiles()?.forEach { it.delete() }
+        File(dir, "story-${LocalDate.now()}.md").apply { writeText(markdown) }
+    }.getOrNull()
+
 @Composable
-fun StoryScreen(viewModel: StoryViewModel, onOpenChapter: (Int) -> Unit) {
-    val state by viewModel.state.collectAsState()
+fun StoryScreen(viewModel: StoryViewModel, onOpenChapter: (LocalDate) -> Unit) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
     val story = state.story
     val context = LocalContext.current
     val p = Chron.palette
@@ -97,8 +142,12 @@ fun StoryScreen(viewModel: StoryViewModel, onOpenChapter: (Int) -> Unit) {
             Spacer(Modifier.height(Spacing.x6))
         }
 
-        val chapters = story?.chapters.orEmpty()
-        if (chapters.isEmpty()) {
+        // Each chapter carries its week-start Monday — the stable key the
+        // reader route is built on, immune to renumbering after a delete.
+        val located = story?.chapters.orEmpty().mapIndexedNotNull { i, chapter ->
+            state.chapterWeeks.getOrNull(i)?.let { chapter to it }
+        }
+        if (located.isEmpty()) {
             item {
                 Spacer(Modifier.height(96.dp))
                 Text(
@@ -115,13 +164,13 @@ fun StoryScreen(viewModel: StoryViewModel, onOpenChapter: (Int) -> Unit) {
             }
         } else {
             // The newest chapter is the hero; the rest float as an index.
-            val current = chapters.last()
-            val previous = chapters.dropLast(1).asReversed()
+            val current = located.last()
+            val previous = located.dropLast(1).asReversed()
 
-            item(key = "hero-${current.number}") {
+            item(key = "hero-${current.second}") {
                 HeroChapterCard(
-                    chapter = current,
-                    onClick = { onOpenChapter(current.number) },
+                    chapter = current.first,
+                    onClick = { onOpenChapter(current.second) },
                     modifier = Modifier.animateItem(),
                 )
             }
@@ -130,11 +179,11 @@ fun StoryScreen(viewModel: StoryViewModel, onOpenChapter: (Int) -> Unit) {
                 item {
                     Spacer(Modifier.height(Spacing.x10))
                 }
-                items(previous, key = { "prev-${it.number}" }) { chapter ->
+                items(previous, key = { "prev-${it.second}" }) { (chapter, weekStart) ->
                     Column(Modifier.animateItem()) {
                         ChapterIndexRow(
                             chapter = chapter,
-                            onClick = { onOpenChapter(chapter.number) },
+                            onClick = { onOpenChapter(weekStart) },
                         )
                         Hairline(modifier = Modifier.padding(vertical = 2.dp))
                     }
@@ -232,11 +281,22 @@ private fun ChapterIndexRow(chapter: StoryChapter, onClick: () -> Unit) {
 @Composable
 fun StoryChapterScreen(
     viewModel: StoryViewModel,
-    chapterNumber: Int,
+    weekStart: LocalDate,
     onBack: () -> Unit,
 ) {
-    val state by viewModel.state.collectAsState()
-    val chapter = state.story?.chapters?.firstOrNull { it.number == chapterNumber }
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val chapter = state.chapterAt(weekStart)
+    // Chapters regroup from live entries — if this week's chapter vanished
+    // mid-read (entries deleted), step back out once rather than strand the
+    // reader on an empty page. Waits for the first real emission so a cold
+    // start doesn't pop before the story loads.
+    var popped by remember { mutableStateOf(false) }
+    LaunchedEffect(state.story, chapter) {
+        if (!popped && state.story != null && chapter == null) {
+            popped = true
+            onBack()
+        }
+    }
     val context = LocalContext.current
     val p = Chron.palette
     val type = Chron.type

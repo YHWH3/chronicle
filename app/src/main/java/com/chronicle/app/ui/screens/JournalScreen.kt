@@ -1,7 +1,12 @@
 package com.chronicle.app.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -24,7 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import com.chronicle.app.R
 import com.chronicle.app.domain.EntryKind
 import com.chronicle.app.domain.JournalEntry
+import com.chronicle.app.domain.TranscriptStatus
 import com.chronicle.app.ui.design.Chron
 import com.chronicle.app.ui.design.GhostButton
 import com.chronicle.app.ui.design.GlassSurface
@@ -62,7 +68,7 @@ import java.util.Locale
 
 @Composable
 fun JournalScreen(viewModel: JournalViewModel, onOpenToday: () -> Unit) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     var expandedId by remember { mutableStateOf<Long?>(null) }
 
     LazyColumn(
@@ -80,6 +86,42 @@ fun JournalScreen(viewModel: JournalViewModel, onOpenToday: () -> Unit) {
                 modifier = Modifier.semantics { heading() },
             )
             Spacer(Modifier.height(Spacing.x6))
+        }
+
+        // ————— Undo-delete: a quiet pill while the window is open —————
+        item(key = "undo-delete") {
+            AnimatedVisibility(
+                visible = state.pendingDelete != null,
+                enter = fadeIn(tween(ChronicleMotion.MICRO)) +
+                    expandVertically(tween(ChronicleMotion.MICRO)),
+                exit = fadeOut(tween(ChronicleMotion.MICRO)) +
+                    shrinkVertically(tween(ChronicleMotion.MICRO)),
+            ) {
+                GlassSurface(
+                    level = SurfaceLevel.Frosted,
+                    shape = RoundedCornerShape(Radius.pill),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = Spacing.x4),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(start = Spacing.x4),
+                    ) {
+                        Text(
+                            text = "Entry deleted.",
+                            style = Chron.type.meta,
+                            color = Chron.palette.textSecondary,
+                            modifier = Modifier.weight(1f),
+                        )
+                        GhostButton(
+                            label = "Undo",
+                            onClick = viewModel::undoDelete,
+                            color = Chron.palette.accent,
+                        )
+                    }
+                }
+            }
         }
 
         if (state.days.isEmpty()) {
@@ -131,11 +173,16 @@ fun JournalScreen(viewModel: JournalViewModel, onOpenToday: () -> Unit) {
                                 expanded = expandedId == entry.id,
                                 isPlaying = isPlaying,
                                 progress = if (isPlaying) state.progress else 0f,
+                                canRetranscribe = state.canRetranscribe,
+                                transcribing = entry.id in state.transcribingIds,
                                 onClick = {
                                     expandedId =
                                         if (expandedId == entry.id) null else entry.id
                                 },
                                 onPlay = { entry.audioPath?.let { viewModel.togglePlay(it) } },
+                                onRetryTranscription = {
+                                    viewModel.retryTranscription(entry)
+                                },
                                 onDelete = {
                                     expandedId = null
                                     viewModel.delete(entry)
@@ -156,8 +203,11 @@ private fun JournalEntryRow(
     expanded: Boolean,
     isPlaying: Boolean,
     progress: Float,
+    canRetranscribe: Boolean,
+    transcribing: Boolean,
     onClick: () -> Unit,
     onPlay: () -> Unit,
+    onRetryTranscription: () -> Unit,
     onDelete: () -> Unit,
 ) {
     val p = Chron.palette
@@ -234,14 +284,48 @@ private fun JournalEntryRow(
             )
         }
 
+        // A take that kept its audio but lost its words says so quietly —
+        // and offers a retry once the model that can read it is installed.
+        // PENDING covers a retry orphaned by a process death.
+        val needsTranscript = entry.kind == EntryKind.VOICE &&
+            (entry.transcriptStatus == TranscriptStatus.FAILED ||
+                entry.transcriptStatus == TranscriptStatus.PENDING)
+        if (needsTranscript || transcribing) {
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text = if (transcribing ||
+                    entry.transcriptStatus == TranscriptStatus.PENDING
+                ) {
+                    "Transcribing…"
+                } else {
+                    "Transcription failed — audio kept."
+                },
+                style = type.meta,
+                color = p.warning,
+                modifier = Modifier.padding(start = 46.dp),
+            )
+        }
+
         if (expanded) {
             Spacer(Modifier.height(8.dp))
-            GhostButton(
-                label = "Delete",
-                onClick = onDelete,
-                color = p.warning,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.align(Alignment.End),
-            )
+            ) {
+                if (needsTranscript && canRetranscribe && entry.audioPath != null) {
+                    GhostButton(
+                        label = if (transcribing) "Transcribing…" else "Transcribe again",
+                        onClick = { if (!transcribing) onRetryTranscription() },
+                        color = p.accent,
+                    )
+                    Spacer(Modifier.width(Spacing.x4))
+                }
+                GhostButton(
+                    label = "Delete",
+                    onClick = onDelete,
+                    color = p.warning,
+                )
+            }
         }
     }
 }

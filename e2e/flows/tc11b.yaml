@@ -7,21 +7,24 @@ appId: com.chronicle.app
 - tapOn: 'Settings'
 - tapOn: 'The Mind'
 - tapOn: '^On-device model$'
-- tapOn: '^Llama 3.2 3B$'
+- tapOn: '^On-device language model$'
 - scrollUntilVisible:
     element: 'Download source'
     direction: down
 - tapOn: 'Edit'
-- assertVisible: 'The Llama download is licence-gated — accept Meta''s licence on huggingface.co, then paste the .task link here\.'
-- assertVisible: 'https://huggingface.co[\s\S]*'
+# After tc11 typed a URL, the field shows it; on a fresh run the
+# placeholder 'Model download URL' is the match instead.
+- assertVisible: '[\s\S]*licence-gated[\s\S]*'
+- assertVisible: 'Bring your own model[\s\S]*'
+- assertVisible: 'https://github\.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0\.6b-v3-int8\.tar\.bz2'
 - takeScreenshot: tc11-ondevice
 - scrollUntilVisible:
-    element: '(Download · 2 GB|Try again)'
+    element: '(^Download$|Try again)'
     direction: up
-- tapOn: '(Download · 2 GB|Try again)'
+- tapOn: '(^Download$|Try again)'
 - assertVisible: '(Cancel|Try again)'
 - takeScreenshot: tc11-llm-downloading
 - tapOn:
     text: 'Cancel'
     optional: true
-- assertVisible: '(Download · 2 GB|Try again)'
+- assertVisible: '(^Download$|Try again)'

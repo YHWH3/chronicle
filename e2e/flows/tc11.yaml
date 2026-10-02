@@ -11,21 +11,43 @@ appId: com.chronicle.app
 - assertVisible: '^OpenRouter$'
 - assertVisible: 'Finds reminders with simple rules. Instant\.'
 - tapOn: '^On-device model$'
-- assertVisible: '^Llama 3.2 3B$'
+- assertVisible: '^On-device language model$'
 - assertVisible: 'Until it''s installed, Chronicle uses the Quiet parser\.'
-- tapOn: '^Llama 3.2 3B$'
+- tapOn: '^On-device language model$'
 - assertVisible: 'An on-device mind that reads your entries\.'
-- assertVisible: '≈ 2 GB'
+- assertVisible: 'varies with the model you pick'
 # A previous run may have left the model in Failed state → "Try again".
-- assertVisible: '(Download · 2 GB|Try again)'
+- assertVisible: '(^Download$|Try again)'
+# No bundled URL anymore — the source section is open by default; type the
+# k2-fsa archive URL so the Download path is exercised for real.
 - assertVisible: 'Download source'
+- tapOn:
+    text: 'Edit'
+    optional: true
+- assertVisible: 'Bring your own model[\s\S]*'
+- runFlow:
+    when:
+      visible: '[\s\S]*github\.com/k2-fsa[\s\S]*'
+    commands:
+      - longPressOn: '[\s\S]*github\.com/k2-fsa[\s\S]*'
+      - tapOn:
+          text: 'Select all'
+          optional: true
+      - eraseText: 200
+- tapOn: 'Model download URL'
+- inputText: 'https://github.com/k2-fsa/'
+- inputText: 'sherpa-onnx/releases/download/'
+- inputText: 'asr-models/sherpa-onnx-nemo-'
+- inputText: 'parakeet-tdt-0.6b-v3-int8.tar.bz2'
+- hideKeyboard
+- assertVisible: 'https://github\.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0\.6b-v3-int8\.tar\.bz2'
 - takeScreenshot: tc11-ondevice
 # The emulator's HF download can fail fast (chain validation) — tolerate
 # the Failed/"Try again" terminal state alongside the clean Cancel path.
-- tapOn: '(Download · 2 GB|Try again)'
+- tapOn: '(^Download$|Try again)'
 - assertVisible: '(Cancel|Try again)'
 - takeScreenshot: tc11-llm-downloading
 - tapOn:
     text: 'Cancel'
     optional: true
-- assertVisible: '(Download · 2 GB|Try again)'
+- assertVisible: '(^Download$|Try again)'

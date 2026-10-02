@@ -33,7 +33,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -77,6 +76,7 @@ import com.chronicle.app.ui.vm.SettingsUiState
 import com.chronicle.app.ui.vm.SettingsViewModel
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 private val panelEnter = fadeIn(tween(ChronicleMotion.ENTER, easing = ChronicleMotion.EnterEasing)) +
     expandVertically(tween(ChronicleMotion.ENTER, easing = ChronicleMotion.EnterEasing))
@@ -87,7 +87,7 @@ private val panelExit = fadeOut(tween(ChronicleMotion.EXIT, easing = ChronicleMo
 
 @Composable
 fun SettingsAppearancePage(viewModel: SettingsViewModel, onBack: () -> Unit) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     SettingsPage(title = "Appearance", onBack = onBack) {
         Text(
             text = "Ink is for the evening; Paper for morning light.",
@@ -221,14 +221,16 @@ private fun ThemeTile(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsNudgePage(viewModel: SettingsViewModel, onBack: () -> Unit) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val notifPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { /* The switch state is already written; prompt is best-effort. */ }
 
     val toggleNudge: (Boolean) -> Unit = { on ->
-        viewModel.setDailyNudge(on)
+        // Both fields go through the atomic setter — a quick toggle+time
+        // pick can never split a stale pair into storage (FE-11).
+        viewModel.setDailyNudge(on, state.dailyNudgeMinutes)
         if (on && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(
                 context, Manifest.permission.POST_NOTIFICATIONS,
@@ -278,7 +280,9 @@ fun SettingsNudgePage(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     ChoicePill(
                         label = label,
                         selected = state.dailyNudgeMinutes == mins,
-                        onClick = { viewModel.setDailyNudgeMinutes(mins) },
+                        onClick = {
+                            viewModel.setDailyNudge(state.dailyNudgeEnabled, mins)
+                        },
                         textStyle = Chron.type.numeric,
                     )
                 }
@@ -291,7 +295,7 @@ fun SettingsNudgePage(viewModel: SettingsViewModel, onBack: () -> Unit) {
 
 @Composable
 fun SettingsEarPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (String) -> Unit) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     SettingsPage(title = "The Ear", onBack = onBack) {
         Text(
             text = "How your voice becomes words.",
@@ -315,7 +319,8 @@ fun SettingsEarPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (S
             OptionCard(
                 title = "Parakeet",
                 subtitle = "More accurate on-device transcription.",
-                meta = "On this phone · 250 MB download",
+                // Measured archive size (HEAD-verified) — ModelKind.nominalBytes.
+                meta = "On this phone · ≈ ${ModelKind.PARAKEET_STT.nominalBytes / 1_000_000} MB download",
                 selected = state.sttEngine == SttEngine.PARAKEET,
                 onClick = { viewModel.setSttEngine(SttEngine.PARAKEET) },
             )
@@ -351,7 +356,7 @@ fun SettingsEarPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (S
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsMindPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (String) -> Unit) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     SettingsPage(title = "The Mind", onBack = onBack) {
         Text(
             text = "How your words become intentions.",
@@ -371,7 +376,9 @@ fun SettingsMindPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (
             MindCard(
                 backend = MindBackend.ON_DEVICE,
                 title = "On-device model",
-                subtitle = "Llama 3.2 3B reads entries on this phone. About 2 GB.",
+                // Bring-your-own bundle — typical Llama 3.2 3B .task builds run
+                // ≈ 2–3 GB; the model page shows the real size from Content-Length.
+                subtitle = "Llama 3.2 3B reads entries on this phone. ≈ 2–3 GB download.",
                 meta = "On this phone · No internet · Nothing leaves",
                 state = state,
                 viewModel = viewModel,
@@ -431,6 +438,11 @@ fun SettingsMindPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (
                             )
                         }
                     }
+                    Spacer(Modifier.height(Spacing.x3))
+                    CustomModelField(
+                        current = state.openRouterModel,
+                        onCommit = { viewModel.setOpenRouter(state.openRouterKey, it) },
+                    )
                     if (state.openRouterKey.isBlank()) {
                         Spacer(Modifier.height(Spacing.x2))
                         Text(
@@ -455,10 +467,19 @@ fun SettingsMindPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (
                     FrostedTextField(
                         value = state.customBaseUrl,
                         onChange = {
-                            viewModel.setCustomEndpoint(it, state.customModel, state.customKey)
+                            viewModel.setCustomEndpoint(
+                                it.trim(), state.customModel, state.customKey,
+                            )
                         },
                         placeholder = "Base URL (https://api.openai.com/v1)",
                         singleLine = true,
+                    )
+                    Spacer(Modifier.height(Spacing.x2))
+                    Text(
+                        text = "HTTPS required — cleartext endpoints are refused.",
+                        style = Chron.type.meta,
+                        color = Chron.palette.textTertiary,
+                        modifier = Modifier.padding(start = 4.dp),
                     )
                     Spacer(Modifier.height(Spacing.x3))
                     FrostedTextField(
@@ -520,6 +541,45 @@ private fun MindCard(
             }
         }
     }
+}
+
+private val MODEL_ID_REGEX = Regex("[a-z0-9._/:-]+")
+
+/**
+ * Free-entry OpenRouter model id — the chips cover the free tier, this
+ * field reaches the rest of the catalogue. A draft is only committed once
+ * it looks like a slug (vendor/model[:tag]); while it's malformed the hint
+ * explains the shape rather than saving noise.
+ */
+@Composable
+private fun CustomModelField(current: String, onCommit: (String) -> Unit) {
+    var draft by remember { mutableStateOf("") }
+    val clean = draft.trim()
+    val valid = clean.matches(MODEL_ID_REGEX)
+    FrostedTextField(
+        value = draft,
+        onChange = {
+            draft = it
+            val candidate = it.trim()
+            if (candidate.matches(MODEL_ID_REGEX)) onCommit(candidate)
+        },
+        placeholder = "Custom model id (vendor/model:tag)",
+        singleLine = true,
+    )
+    Spacer(Modifier.height(Spacing.x2))
+    Text(
+        text = when {
+            draft.isNotBlank() && !valid ->
+                "A model id is lowercase letters, digits and - . _ / : — like vendor/model."
+            current.isNotBlank() && current !in OPENROUTER_FREE_MODELS ->
+                "Using $current."
+            else ->
+                "Or type any OpenRouter model id — the chips are only the free ones."
+        },
+        style = Chron.type.meta,
+        color = Chron.palette.textTertiary,
+        modifier = Modifier.padding(start = 4.dp),
+    )
 }
 
 /** A masked field with a Show/Hide toggle. */

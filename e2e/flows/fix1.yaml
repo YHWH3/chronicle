@@ -8,13 +8,13 @@ appId: com.chronicle.app
 - tapOn: '^Parakeet$'
 - tapOn: 'Parakeet TDT 0.6B'
 - scrollUntilVisible:
-    element: 'Download · 250 MB'
+    element: 'Download · ≈ 487 MB'
     direction: down
 - takeScreenshot: fix1-before-getit
-- tapOn: 'Download · 250 MB'
+- tapOn: 'Download · ≈ 487 MB'
 - assertVisible: 'Cancel'
 - takeScreenshot: fix1-downloading
 - tapOn: 'Cancel'
 - takeScreenshot: fix1-immediately-after-cancel
-- assertVisible: 'Download · 250 MB'
+- assertVisible: 'Download · ≈ 487 MB'
 - takeScreenshot: fix1-getit-returned
