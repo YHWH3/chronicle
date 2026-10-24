@@ -64,7 +64,7 @@ fun SettingsModelPage(
     onBack: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val modelState = state.models[kind] ?: ModelState.NotInstalled
+    val modelState = state.models[kind.packId] ?: ModelState.NotInstalled
     val persistedUrl = when (kind) {
         ModelKind.PARAKEET_STT -> state.parakeetUrl
         ModelKind.LOCAL_LLM -> state.llmUrl
@@ -125,6 +125,10 @@ fun SettingsModelPage(
                 )
             }
 
+            ModelState.Connecting -> DownloadingBody(
+                state = ModelState.Downloading(-1f, 0L),
+                onCancel = { viewModel.cancelModelDownload(kind) },
+            )
             is ModelState.Downloading -> DownloadingBody(
                 state = s,
                 onCancel = { viewModel.cancelModelDownload(kind) },

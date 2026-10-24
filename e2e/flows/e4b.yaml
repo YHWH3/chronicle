@@ -6,5 +6,5 @@ appId: com.chronicle.app
     optional: true
 - tapOn: '^Record$'
 - tapOn: 'Don.t allow'
-- assertVisible: 'Tap to speak your day'
+- assertVisible: 'Tap to talk'
 - takeScreenshot: e4-after-deny

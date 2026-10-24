@@ -21,6 +21,7 @@ data class ExtractedTask(
      * surfaced as a suggestion the user can reject rather than a firm task.
      */
     val suggested: Boolean = false,
+    val explicitReminder: Boolean = false,
 )
 
 /**
@@ -43,7 +44,8 @@ object TaskExtractor {
         Intent(Regex("""\bdon't let me forget(?:\s+to)?\b\s*(.+)""", RegexOption.IGNORE_CASE)),
         Intent(Regex("""\bdo not let me forget(?:\s+to)?\b\s*(.+)""", RegexOption.IGNORE_CASE)),
         Intent(Regex("""\bremember to\b\s*(.+)""", RegexOption.IGNORE_CASE)),
-        Intent(Regex("""\bi (?:really )?need to\b\s*(.+)""", RegexOption.IGNORE_CASE)),
+        Intent(Regex("""\bi (?:(?:really|also|still) )?need to\b\s*(.+)""", RegexOption.IGNORE_CASE)),
+        Intent(Regex("""^need to\b\s*(.+)""", RegexOption.IGNORE_CASE)),
         Intent(Regex("""\bi've got to\b\s*(.+)""", RegexOption.IGNORE_CASE)),
         Intent(Regex("""\bi gotta\b\s*(.+)""", RegexOption.IGNORE_CASE)),
         Intent(Regex("""\bi(?:'m| am) supposed to\b\s*(.+)""", RegexOption.IGNORE_CASE)),
@@ -60,7 +62,7 @@ object TaskExtractor {
      * "and I …", "then", "but", "because".
      */
     private val CLAUSE_BOUNDARY = Regex(
-        """\b(?:and i|then|but|because)\b""",
+        """\b(?:and i|then(?=\s+i\b)|but|because)\b""",
         RegexOption.IGNORE_CASE,
     )
 
@@ -198,8 +200,35 @@ object TaskExtractor {
             Regex("""\b(\d{1,2})\.(\d{2})\s*([aApP][mM])\b"""),
             "$1:$2 $3",
         )
-        return t
+        t = t.replace("\r\n", "\n").replace('\r', '\n')
+        t = t.replace(Regex("""[^\S\n]+([,.;:!?])"""), "$1")
+        // Newlines are intent boundaries, not disposable whitespace. Flattening
+        // them made bullet lists and unpunctuated paragraphs one giant title.
+        return t.split('\n').joinToString("\n") {
+            it.replace(Regex("""[^\S\n]+"""), " ").trim()
+        }.trim()
     }
+
+    internal fun cleanText(text: String): String = normalizeTranscript(text)
+
+    private val FILLERS = Regex(
+        """\b(?:actually|basically|just|really|probably|um|uh|you know|kind of|sort of|i mean)\b""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val PLACEHOLDER = Regex(
+        """^do (?:some|a few|my|the) (?:tasks|things|stuff|errands|chores)\s*(?:,\s*(?:mainly|like|such as|especially)|:)\s*(?:to\s+)?""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val ACTION_SPLIT = Regex(
+        """\s+(?:and then|and to|and|then)\s+(?=(?:call|go|pick|buy|send|email|text|book|pay|finish|clean|fix|take|get|check|write|submit|renew|cancel|order|collect|return|drop|meet|visit|schedule|sign|print|water|feed|pack|back|start|sort)\b)""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val TITLE_BREAK = Regex(
+        """,\s*(?:actually|basically|just|really|probably|um|uh|like|you know|kind of|sort of|i mean|so that|because)\b""",
+        RegexOption.IGNORE_CASE,
+    )
+    private fun stripFillers(text: String): String =
+        text.replace(FILLERS, "").replace(Regex("""\s+"""), " ").trim()
 
     /** One intent match inside a sentence, before clause bounding. */
     private data class Hit(
@@ -253,34 +282,27 @@ object TaskExtractor {
                 CLAUSE_BOUNDARY.find(sentence, hit.captureStart)?.let { b ->
                     if (b.range.first < spanEnd) spanEnd = b.range.first
                 }
-                var fragment = sentence.substring(hit.captureStart, spanEnd)
-
-                // "I should have called her" — modal perfect is a regret,
-                // not an intention. Weak intents only.
-                if (hit.weak && MODAL_PERFECT.containsMatchIn(fragment.trimStart())) continue
-
-                // Time phrases are resolved on this intent's own clause so a
-                // later clause's "tomorrow" can't leak into the wrong task.
+                var rawCapture = sentence.substring(hit.captureStart, spanEnd)
+                TITLE_BREAK.find(rawCapture)?.let { rawCapture = rawCapture.substring(0, it.range.first) }
+                var capture = stripFillers(rawCapture)
+                capture = capture.replace(PLACEHOLDER, "")
+                if (hit.weak && MODAL_PERFECT.containsMatchIn(capture.trimStart())) continue
                 val contextStart = if (i == 0) 0 else hit.start
-                val time = resolveTime(sentence.substring(contextStart, spanEnd), now)
-
-                for (matched in time.matchedLiterals.sortedByDescending { it.length }) {
-                    val idx = fragment.lowercase().indexOf(matched.lowercase())
-                    if (idx >= 0) {
-                        fragment = fragment.substring(0, idx) + fragment.substring(idx + matched.length)
+                val prefix = sentence.substring(contextStart, hit.captureStart)
+                for ((partIndex, rawPart) in capture.split(ACTION_SPLIT).withIndex()) {
+                    // Each action owns its time; later actions inherit no clock/date.
+                    val time = resolveTime((if (partIndex == 0) prefix else "") + rawPart, now)
+                    var fragment = rawPart
+                    for (matched in time.matchedLiterals.sortedByDescending { it.length }) {
+                        val idx = fragment.lowercase().indexOf(matched.lowercase())
+                        if (idx >= 0) fragment = fragment.substring(0, idx) + fragment.substring(idx + matched.length)
                     }
-                }
-
-                val title = polishTitle(fragment)
-                if (title.length >= 3) {
-                    val key = title.lowercase()
-                    if (!results.containsKey(key) || results[key]?.remindAt == null) {
-                        results[key] = ExtractedTask(
-                            title = title,
-                            remindAt = time.remindAt,
-                            timeAmbiguous = time.ambiguous,
-                            suggested = hit.weak,
-                        )
+                    val title = polishTitle(fragment)
+                    if (title.length >= 3) {
+                        val key = title.lowercase()
+                        if (!results.containsKey(key) || results[key]?.remindAt == null) {
+                            results[key] = ExtractedTask(title, time.remindAt, time.ambiguous, hit.weak, explicitReminder = hit.order < 4)
+                        }
                     }
                 }
             }
@@ -437,18 +459,16 @@ object TaskExtractor {
         resolveTime(text, now).remindAt
 
     private fun polishTitle(raw: String): String {
-        var t = raw.replace(Regex("""\s+"""), " ").trim()
-        // Drop dangling connectives left behind by removed time phrases.
-        t = t.replace(Regex("""\s+(at|on|in|by|before|for|and|or)$""", RegexOption.IGNORE_CASE), "")
-        t = t.replace(Regex("""^to\s+""", RegexOption.IGNORE_CASE), "")
-        // Keep titles glanceable: ~8 words / 60 chars, then re-clean whatever
-        // the cut exposed.
-        val words = t.split(" ")
-        if (words.size > 8) t = words.take(8).joinToString(" ")
-        if (t.length > 60) t = t.take(60).substringBeforeLast(' ', t.take(60))
-        t = t.replace(Regex("""\s+(at|on|in|by|before|for|and|or|to)$""", RegexOption.IGNORE_CASE), "")
-        t = t.trim().trimEnd(',', '.')
-        if (t.isEmpty()) return t
-        return t.replaceFirstChar { it.uppercase() }
+        var title = raw
+        TITLE_BREAK.find(title)?.let { title = title.substring(0, it.range.first) }
+        title = stripFillers(title)
+            .replace(Regex(""",\s*like\s*,""", RegexOption.IGNORE_CASE), " ")
+            .replace(Regex("""\bthis week\b""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""^to\s+""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""\s+"""), " ").trim().trim(',', '.', ';', ':')
+        title = title.split(" ").take(10).joinToString(" ")
+        val tail = Regex("""\s+(?:at|on|in|by|before|for|and|or|to|the|a|an|of|with|from)$""", RegexOption.IGNORE_CASE)
+        while (tail.containsMatchIn(title)) title = title.replace(tail, "")
+        return title.trim().trimEnd(',', '.').replaceFirstChar { it.uppercase() }
     }
 }

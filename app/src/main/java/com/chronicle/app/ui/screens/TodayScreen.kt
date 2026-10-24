@@ -40,6 +40,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,6 +59,8 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -74,6 +78,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chronicle.app.R
 import com.chronicle.app.data.SttEngine
+import com.chronicle.app.data.db.TaskEntity
 import com.chronicle.app.domain.EntryKind
 import com.chronicle.app.domain.JournalEntry
 import com.chronicle.app.media.RecordingService
@@ -95,6 +100,7 @@ import com.chronicle.app.ui.design.Step
 import com.chronicle.app.ui.design.StepList
 import com.chronicle.app.ui.design.SurfaceLevel
 import com.chronicle.app.ui.theme.ChronicleMotion
+import com.chronicle.app.ui.design.phoneTime
 import com.chronicle.app.ui.vm.CaptureMode
 import com.chronicle.app.ui.vm.KeptIntention
 import com.chronicle.app.ui.vm.ProcessingStep
@@ -115,8 +121,26 @@ fun TodayScreen(
     viewModel: TodayViewModel,
     onOpenSettings: () -> Unit,
     onOpenJournal: () -> Unit,
+    smartSetup: com.chronicle.app.mind.SmartSetupController? = null,
+    onOtherModels: () -> Unit = onOpenSettings,
+    onOpenNote: (Long) -> Unit = { onOpenJournal() },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val setup by (smartSetup?.todayState ?: kotlinx.coroutines.flow.MutableStateFlow(
+        com.chronicle.app.mind.SmartSetupState())).collectAsStateWithLifecycle()
+    LaunchedEffect(smartSetup) { smartSetup?.onTodayOpened() }
+    var editing by remember { mutableStateOf<KeptIntention?>(null) }
+    editing?.let { task ->
+        EditIntentionDialog(
+            task = TaskEntity(id = task.taskId ?: 0L, title = task.title, createdAt = 0L),
+            onDismiss = { editing = null },
+            onSave = { title, at ->
+                task.taskId?.let { viewModel.updateKeptTask(it, title, at) }
+                editing = null
+            },
+            heading = stringResource(R.string.add_time),
+        )
+    }
     val haptics = LocalHapticFeedback.current
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
@@ -218,7 +242,7 @@ fun TodayScreen(
         when (it) {
             Phase.IDLE -> 0.52f
             // On short screens 0.78 drops the stop circle onto the
-            // "Tap to keep" caption — ride a little higher.
+            // stringResource(R.string.tap_to_keep) caption — ride a little higher.
             Phase.RECORDING -> if (compactScreen) 0.72f else 0.78f
             Phase.PROCESSING -> 0.24f
             Phase.KEPT -> 0.24f
@@ -264,6 +288,8 @@ fun TodayScreen(
             }
         }
 
+        val imeVisible = WindowInsets.isImeVisible
+        if (phase != Phase.IDLE) {
         // ————— Header —————
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -280,31 +306,43 @@ fun TodayScreen(
             Spacer(Modifier.weight(1f))
             FrostedIconButton(
                 icon = R.drawable.ic_gear,
-                contentDescription = "Settings",
+                contentDescription = stringResource(R.string.settings),
                 onClick = onOpenSettings,
             )
         }
 
-        // Fade while the IME is up — the pills and greeting clear the field.
-        val imeVisible = WindowInsets.isImeVisible
-        val pillsImeA by animateFloatAsState(
-            targetValue = if (imeVisible) 0f else 1f,
-            animationSpec = tween(ChronicleMotion.EXIT),
-            label = "pillsIme",
-        )
 
-        // ————— Greeting (fades + soft-blurs out once capture begins) —————
-        if (idleA > 0.01f) {
+        }
+        // Idle geometry follows measured content, font scale and system insets.
+        if (phase == Phase.IDLE) {
             Column(
-                Modifier
-                    .fillMaxWidth()
-                    .offset { IntOffset(0, (H * 0.08f).toInt()) }
-                    .padding(horizontal = Spacing.screenMargin)
-                    .graphicsLayer {
-                        alpha = idleA * pillsImeA
-                        translationY = (1f - idleA) * (-36f)
-                    },
+                Modifier.fillMaxSize().imePadding()
+                    .padding(bottom = if (imeVisible) 12.dp else bottomPad),
             ) {
+        // ————— Header —————
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.screenMargin, vertical = Spacing.x4),
+        ) {
+            Text(
+                text = LocalDate.now()
+                    .format(DateTimeFormatter.ofPattern("EEE · d MMM", Locale.ENGLISH)),
+                style = type.meta,
+                color = p.textSecondary,
+            )
+            Spacer(Modifier.weight(1f))
+            FrostedIconButton(
+                icon = R.drawable.ic_gear,
+                contentDescription = stringResource(R.string.settings),
+                onClick = onOpenSettings,
+            )
+        }
+
+
+                if (!imeVisible) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.screenMargin)) {
                 // Two explicit lines so the break never depends on wrapping.
                 val words = greeting().split(" ")
                 Text(
@@ -320,28 +358,16 @@ fun TodayScreen(
                 )
                 Spacer(Modifier.height(14.dp))
                 Text(
-                    text = "What happened today?",
+                    text = stringResource(R.string.today_question),
                     style = type.body,
                     color = p.textSecondary,
                 )
-            }
-        }
 
-        // ————— Speak/Write pills —————
-        if (idleA > 0.01f) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = Spacing.screenMargin)
-                    .graphicsLayer {
-                        alpha = idleA * pillsImeA
-                        translationY = (1f - idleA) * (-24f)
                     }
-                    .offset { IntOffset(0, (H * 0.285f).toInt()) },
-                contentAlignment = Alignment.Center,
-            ) {
+                    Spacer(Modifier.height(Spacing.x4))
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 SegmentedPills(
-                    options = listOf("Speak" to R.drawable.ic_mic, "Write" to R.drawable.ic_pen),
+                    options = listOf(stringResource(R.string.speak) to R.drawable.ic_mic, stringResource(R.string.write) to R.drawable.ic_pen),
                     selectedIndex = if (state.mode == CaptureMode.SPEAK) 0 else 1,
                     onSelect = { i ->
                         haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -349,11 +375,96 @@ fun TodayScreen(
                     },
                     modifier = Modifier.width(250.dp),
                 )
+
+                    }
+                }
+                if (state.mode == CaptureMode.SPEAK) {
+                    BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                    // Bound the card by the measured space left after the
+                    // header. A long list must not consume the mic's hit area.
+                    val maxCardHeight = (maxHeight - 96.dp).coerceIn(0.dp, 240.dp)
+                    Column(Modifier.fillMaxSize()) {
+                    BoxWithConstraints(
+                        Modifier.weight(1f).fillMaxWidth().padding(vertical = 6.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        // A tall note/card at large text sizes can leave less
+                        // room than a circle plus caption. Hide the redundant
+                        // caption instead of drawing it underneath the card.
+                        val showCaption = maxHeight >= 100.dp
+                        val size = (maxHeight - if (showCaption) 44.dp else 0.dp)
+                            .coerceIn(48.dp, 148.dp)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(Modifier.size(size)) {
+                                CaptureCircleIdle {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    micPermission.launch(Manifest.permission.RECORD_AUDIO)
+                                }
+                            }
+                            if (showCaption) {
+                                Spacer(Modifier.height(12.dp))
+                                Text(stringResource(R.string.tap_to_talk), style = type.meta, color = p.textSecondary)
+                            }
+                        }
+                    }
+                    Box(
+                        Modifier.fillMaxWidth().padding(horizontal = Spacing.screenMargin)
+                            .heightIn(max = maxCardHeight).verticalScroll(rememberScrollState()),
+                    ) {
+                        if (setup.phase != com.chronicle.app.mind.SmartSetupPhase.HIDDEN && smartSetup != null) {
+                            Column {
+                                if (state.todaysEntries.isNotEmpty()) {
+                                    com.chronicle.app.ui.design.GhostButton(
+                                        pluralStringResource(R.plurals.notes_today, state.todaysEntries.size, state.todaysEntries.size), onOpenJournal)
+                                }
+                                SmartSetupCard(setup, {
+                                    if (com.chronicle.app.mind.SmartModels.find(setup.modelId)?.gated == true)
+                                        onOtherModels()
+                                    else smartSetup.download()
+                                }, smartSetup::dismiss,
+                                    smartSetup::pause, smartSetup::cancel, smartSetup::useMobileData, onOtherModels)
+                            }
+                        } else EarlierTodayCard(state.todaysEntries, true, onOpenJournal)
+                    }
+                    }
+                    }
+                } else {
+                    if (!imeVisible) Spacer(Modifier.weight(1f))
+                    Column(
+                        Modifier.fillMaxWidth().padding(horizontal = Spacing.screenMargin)
+                            .weight(1f),
+                    ) {
+                Box(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                FrostedTextField(
+                    value = state.draftText,
+                    onChange = { viewModel.setDraft(it) },
+                    placeholder = stringResource(R.string.note_placeholder),
+                    minHeight = 168.dp,
+                )
+                }
+                Spacer(Modifier.height(Spacing.x4))
+                Row(Modifier.fillMaxWidth()) {
+                    Spacer(Modifier.weight(1f))
+                    PrimaryPill(
+                        label = stringResource(R.string.keep),
+                        onClick = {
+                            // Dismiss the IME before the processing morph starts.
+                            focusManager.clearFocus()
+                            keyboard?.hide()
+                            viewModel.saveDraft()
+                        },
+                        enabled = state.draftText.isNotBlank(),
+                        loading = state.saving,
+                    )
+                }
+
+                    }
+                }
             }
         }
 
         // ————— The morphing capture element —————
-        if (circleAlpha > 0.01f) {
+        if (phase != Phase.IDLE && phase != Phase.RECORDING && circleAlpha > 0.01f) {
             CaptureElement(
                 phase = phase,
                 circleAlpha = circleAlpha,
@@ -371,84 +482,6 @@ fun TodayScreen(
             )
         }
 
-        // ————— Idle: caption under the circle —————
-        // On short screens the earlier-card climbs into the caption's slot —
-        // drop the hint once there's something on it.
-        val captionCollides = compactHeight && state.todaysEntries.isNotEmpty()
-        if (idleA > 0.01f && state.mode == CaptureMode.SPEAK && !captionCollides) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .alpha(idleA * writeIdleA)
-                    .offset {
-                        val circleCy = if (compactHeight) 0.46f else cy
-                        IntOffset(0, (H * circleCy + with(density) { idleSize.toPx() } / 2 + 24).toInt())
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "Tap to speak your day",
-                    style = type.meta,
-                    color = p.textSecondary,
-                )
-            }
-        }
-
-        // ————— Idle: write field —————
-        if (idleA > 0.01f && state.mode == CaptureMode.WRITE) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.BottomCenter)
-                    .imePadding()
-                    .padding(horizontal = Spacing.screenMargin)
-                    // With the IME up the nav bar is gone — ride just above
-                    // the keyboard instead of keeping the nav-bar clearance.
-                    .padding(bottom = if (imeVisible) 12.dp else bottomPad + 8.dp)
-                    .alpha(idleA),
-            ) {
-                FrostedTextField(
-                    value = state.draftText,
-                    onChange = { viewModel.setDraft(it) },
-                    placeholder = "Begin anywhere. The day will shape itself.",
-                    minHeight = 168.dp,
-                )
-                Spacer(Modifier.height(Spacing.x4))
-                Row(Modifier.fillMaxWidth()) {
-                    Spacer(Modifier.weight(1f))
-                    PrimaryPill(
-                        label = "Keep",
-                        onClick = {
-                            // Dismiss the IME before the processing morph starts.
-                            focusManager.clearFocus()
-                            keyboard?.hide()
-                            viewModel.saveDraft()
-                        },
-                        enabled = state.draftText.isNotBlank(),
-                        loading = state.saving,
-                    )
-                }
-            }
-        }
-
-        // ————— Idle: earlier today card —————
-        if (idleA > 0.01f) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.BottomCenter)
-                    .padding(horizontal = Spacing.screenMargin)
-                    .padding(bottom = bottomPad + 8.dp)
-                    .alpha(idleA),
-            ) {
-                EarlierTodayCard(
-                    entries = state.todaysEntries,
-                    visible = state.mode == CaptureMode.SPEAK,
-                    onOpenJournal = onOpenJournal,
-                )
-            }
-        }
-
         // ————— Recording —————
         if (recA > 0.01f) {
             RecordingHud(
@@ -460,7 +493,7 @@ fun TodayScreen(
             )
 
             // Bottom control row: Discard left, stop circle (the morph)
-            // centered with "Tap to keep" beneath it, equal spacer right.
+            // centered with stringResource(R.string.tap_to_keep) beneath it, equal spacer right.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -477,18 +510,20 @@ fun TodayScreen(
                 ) {
                     FrostedIconButton(
                         icon = R.drawable.ic_close,
-                        contentDescription = "Discard",
+                        contentDescription = stringResource(R.string.discard),
                         onClick = { viewModel.cancelRecording() },
                     )
                     Spacer(Modifier.height(6.dp))
-                    Text("Discard", style = type.meta, color = p.textSecondary)
+                    Text(stringResource(R.string.discard), style = type.meta, color = p.textSecondary)
                 }
                 Spacer(Modifier.weight(1f))
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     // Spacer matching the morphing circle's footprint.
-                    Spacer(Modifier.size(88.dp))
+                    Box(Modifier.size(88.dp)) {
+                        CaptureCircleStop { viewModel.toggleRecording() }
+                    }
                     Spacer(Modifier.height(6.dp))
-                    Text("Tap to keep", style = type.meta, color = p.textSecondary)
+                    Text(stringResource(R.string.tap_to_keep), style = type.meta, color = p.textSecondary)
                 }
                 Spacer(Modifier.weight(1f))
                 // Same footprint as the Discard column so the centre stays centred.
@@ -508,9 +543,9 @@ fun TodayScreen(
             ) {
                 Text(
                     text = when (state.processingStep) {
-                        ProcessingStep.TRANSCRIBING -> "Transcribing…"
-                        ProcessingStep.READING -> "Looking for intentions…"
-                        else -> "Keeping your words…"
+                        ProcessingStep.TRANSCRIBING -> stringResource(R.string.transcribing)
+                        ProcessingStep.READING -> stringResource(R.string.finding_todos)
+                        else -> stringResource(R.string.saving_note)
                     },
                     style = type.headline,
                     color = p.textPrimary,
@@ -518,9 +553,9 @@ fun TodayScreen(
                 Spacer(Modifier.height(28.dp))
                 val voice = state.mode == CaptureMode.SPEAK
                 val labels = if (voice) {
-                    listOf("Transcribing your words", "Saving to your journal", "Looking for intentions")
+                    listOf(stringResource(R.string.transcribing_words), stringResource(R.string.saving_note_step), stringResource(R.string.finding_todos_step))
                 } else {
-                    listOf("Saving to your journal", "Looking for intentions")
+                    listOf(stringResource(R.string.saving_note_step), stringResource(R.string.finding_todos_step))
                 }
                 val activeIndex = when (state.processingStep) {
                     ProcessingStep.TRANSCRIBING -> 0
@@ -562,10 +597,12 @@ fun TodayScreen(
                     buttonsOffset = buttonsOffset,
                     onViewEntry = {
                         viewModel.dismissKept()
-                        onOpenJournal()
+                        onOpenNote(kept.entryId)
                     },
                     onAddAnother = { viewModel.dismissKept() },
                     onDismissSuggestion = { viewModel.dismissSuggestion(it) },
+                    onAddSuggestion = { viewModel.acceptSuggestion(it) },
+                    onAddTime = { editing = it },
                 )
             }
         }
@@ -734,7 +771,7 @@ private fun CaptureCircleKept() {
     ) {
         Icon(
             painter = painterResource(R.drawable.ic_check),
-            contentDescription = "Kept",
+            contentDescription = stringResource(R.string.saved),
             tint = p.accent,
             modifier = Modifier
                 .fillMaxSize(0.34f)
@@ -776,7 +813,7 @@ private fun RecordingHud(
             .offset { IntOffset(0, topOffset.toInt()) },
     ) {
         Text(
-            text = "Recording…",
+            text = stringResource(R.string.recording),
             style = type.meta,
             color = p.textSecondary,
             modifier = Modifier.alpha(pulse),
@@ -821,9 +858,9 @@ private fun TranscriptBubble(state: TodayUiState) {
             } else {
                 Text(
                     text = when {
-                        state.sttEngine == SttEngine.PARAKEET -> "Transcribed when you stop."
-                        !state.speechAvailable -> "Kept as a voice note."
-                        else -> "Listening…"
+                        state.sttEngine == SttEngine.PARAKEET -> stringResource(R.string.transcribed_when_stopped)
+                        !state.speechAvailable -> stringResource(R.string.saved_as_voice_note)
+                        else -> stringResource(R.string.listening)
                     },
                     style = type.serifItalic,
                     color = p.textSecondary,
@@ -852,13 +889,13 @@ private fun EarlierTodayCard(
         ) {
             Column(Modifier.padding(18.dp)) {
                 Text(
-                    "Nothing kept yet today.",
+                    stringResource(R.string.no_notes_today),
                     style = type.body,
                     color = p.textPrimary,
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "Speak or write — Chronicle keeps it and pulls out anything you mean to do.",
+                    stringResource(R.string.today_empty_help),
                     style = type.bodySmall,
                     color = p.textSecondary,
                 )
@@ -875,7 +912,7 @@ private fun EarlierTodayCard(
         Column(Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "Earlier today",
+                    stringResource(R.string.earlier_today),
                     style = type.controlSmall,
                     color = p.textSecondary,
                 )
@@ -894,9 +931,7 @@ private fun EarlierTodayCard(
                     modifier = Modifier.padding(vertical = 5.dp),
                 ) {
                     Text(
-                        text = entry.createdAt.format(
-                            DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH),
-                        ),
+                        text = phoneTime(entry.createdAt),
                         style = type.numeric,
                         color = p.textTertiary,
                     )
@@ -911,7 +946,7 @@ private fun EarlierTodayCard(
                         Spacer(Modifier.width(8.dp))
                     }
                     Text(
-                        text = entry.transcript.ifBlank { "A voice note" },
+                        text = entry.transcript.ifBlank { stringResource(R.string.voice_note) },
                         style = type.body,
                         color = p.textSecondary,
                         maxLines = 2,
@@ -935,6 +970,8 @@ private fun androidx.compose.foundation.layout.BoxScope.KeptBody(
     onViewEntry: () -> Unit,
     onAddAnother: () -> Unit,
     onDismissSuggestion: (Long) -> Unit,
+    onAddSuggestion: (Long) -> Unit,
+    onAddTime: (KeptIntention) -> Unit,
 ) {
     val p = Chron.palette
     val type = Chron.type
@@ -949,25 +986,28 @@ private fun androidx.compose.foundation.layout.BoxScope.KeptBody(
             .verticalScroll(rememberScrollState()),
     ) {
         Text(
-            text = "Kept.",
+            text = stringResource(R.string.saved),
             style = type.display,
             color = p.textPrimary,
             modifier = Modifier.semantics { heading() },
         )
         Spacer(Modifier.height(10.dp))
         Text(
-            text = when (kept.reminders) {
-                0 -> "Saved to your journal."
-                1 -> "1 reminder set"
-                else -> "${kept.reminders} reminders set"
+            text = if (kept.intentions.none { !it.suggested }) {
+                stringResource(R.string.note_is_saved)
+            } else {
+                val count = kept.intentions.count { !it.suggested }
+                val summary = pluralStringResource(R.plurals.todos_added, count, count)
+                val at = kept.intentions.singleOrNull { !it.suggested }?.remindAt
+                if (at == null) summary else summary + stringResource(R.string.reminder_suffix, phoneTime(at))
             },
             style = type.body,
-            color = if (kept.reminders > 0) p.accent else p.textSecondary,
+            color = if (kept.intentions.any { !it.suggested }) p.accent else p.textSecondary,
         )
         if (kept.transcriptFailed) {
             Spacer(Modifier.height(6.dp))
             Text(
-                text = "Transcription failed — your audio is kept.",
+                text = stringResource(R.string.transcription_failed_audio_saved),
                 style = type.meta,
                 color = p.warning,
                 textAlign = TextAlign.Center,
@@ -988,8 +1028,8 @@ private fun androidx.compose.foundation.layout.BoxScope.KeptBody(
         val suggestions = kept.intentions.filter { it.suggested }
         if (definite.isNotEmpty()) {
             Spacer(Modifier.height(18.dp))
-            definite.take(3).forEach { intention ->
-                IntentionRow(intention)
+            definite.forEach { intention ->
+                IntentionRow(intention, onAddTime = { onAddTime(intention) })
                 Spacer(Modifier.height(8.dp))
             }
         }
@@ -998,14 +1038,16 @@ private fun androidx.compose.foundation.layout.BoxScope.KeptBody(
         if (suggestions.isNotEmpty()) {
             Spacer(Modifier.height(14.dp))
             Text(
-                text = "Suggestions",
+                text = stringResource(R.string.maybe_todos),
                 style = type.meta,
                 color = p.textTertiary,
             )
             Spacer(Modifier.height(8.dp))
-            suggestions.take(3).forEach { intention ->
+            suggestions.forEach { intention ->
                 IntentionRow(
                     intention = intention,
+                    onAddTime = { onAddTime(intention) },
+                    onAdd = intention.taskId?.let { id -> { onAddSuggestion(id) } },
                     onDismiss = intention.taskId?.let { id ->
                         { onDismissSuggestion(id) }
                     },
@@ -1014,13 +1056,7 @@ private fun androidx.compose.foundation.layout.BoxScope.KeptBody(
             }
         }
         Spacer(Modifier.height(6.dp))
-        if (kept.engineLabel.isNotBlank()) {
-            Text(
-                text = "Read by ${kept.engineLabel}",
-                style = type.meta,
-                color = p.textTertiary,
-            )
-        }
+
     }
 
     Row(
@@ -1034,12 +1070,12 @@ private fun androidx.compose.foundation.layout.BoxScope.KeptBody(
             .alpha(alpha),
     ) {
         SecondaryPill(
-            label = "View entry",
+            label = stringResource(R.string.open_note),
             onClick = onViewEntry,
             modifier = Modifier.weight(1f),
         )
         PrimaryPill(
-            label = "Add another",
+            label = stringResource(R.string.new_note),
             onClick = onAddAnother,
             modifier = Modifier.weight(1f),
         )
@@ -1047,18 +1083,22 @@ private fun androidx.compose.foundation.layout.BoxScope.KeptBody(
 }
 
 @Composable
-private fun IntentionRow(intention: KeptIntention, onDismiss: (() -> Unit)? = null) {
+private fun IntentionRow(
+    intention: KeptIntention,
+    onAddTime: () -> Unit,
+    onAdd: (() -> Unit)? = null,
+    onDismiss: (() -> Unit)? = null,
+) {
     val p = Chron.palette
     val type = Chron.type
     GlassSurface(
         level = SurfaceLevel.Frosted,
         shape = RoundedCornerShape(Radius.sm),
+        onClick = if (intention.remindAt == null) onAddTime else null,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-        ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 painter = painterResource(
                     if (intention.remindAt != null) R.drawable.ic_bell else R.drawable.ic_check,
@@ -1076,47 +1116,41 @@ private fun IntentionRow(intention: KeptIntention, onDismiss: (() -> Unit)? = nu
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            Spacer(Modifier.width(10.dp))
-            Text(
-                text = formatRemind(intention.remindAt),
-                style = type.meta,
-                color = p.textTertiary,
-            )
-            if (onDismiss != null) {
-                Spacer(Modifier.width(8.dp))
-                Icon(
-                    painter = painterResource(R.drawable.ic_close),
-                    contentDescription = "Dismiss suggestion",
-                    tint = p.textTertiary,
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .clickable(onClick = onDismiss)
-                        .padding(6.dp),
-                )
+            if (intention.remindAt != null) {
+                Spacer(Modifier.width(10.dp))
+                Text(formatRemind(intention.remindAt), style = type.meta, color = p.textTertiary)
             }
+        }
+        if (onAdd != null || onDismiss != null) {
+            Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)) {
+                onAdd?.let { com.chronicle.app.ui.design.GhostButton(stringResource(R.string.add), it) }
+                onDismiss?.let { com.chronicle.app.ui.design.GhostButton(stringResource(R.string.skip), it) }
+            }
+        }
         }
     }
 }
 
+@Composable
 private fun formatRemind(at: LocalDateTime?): String {
-    if (at == null) return "No reminder"
+    if (at == null) return ""
     val today = LocalDate.now()
-    val time = at.format(DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH))
+    val time = phoneTime(at)
     return when (at.toLocalDate()) {
         today -> "Today · $time"
         today.plusDays(1) -> "Tomorrow · $time"
-        else -> at.format(DateTimeFormatter.ofPattern("EEE d MMM · HH:mm", Locale.ENGLISH))
+        else -> at.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.ENGLISH)) + " · $time"
     }
 }
 
+@Composable
 private fun greeting(): String {
     val hour = LocalDateTime.now().hour
     return when {
-        hour < 5 -> "A quiet hour."
-        hour < 12 -> "Good morning."
-        hour < 17 -> "Good afternoon."
-        else -> "Good evening."
+        hour < 5 -> stringResource(R.string.quiet_hour)
+        hour < 12 -> stringResource(R.string.good_morning)
+        hour < 17 -> stringResource(R.string.good_afternoon)
+        else -> stringResource(R.string.good_evening)
     }
 }
 

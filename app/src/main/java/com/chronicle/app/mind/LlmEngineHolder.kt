@@ -59,6 +59,12 @@ class LlmEngineHolder<E : ReleasableEngine>(
         System.gc()
     }
 
+    /** Installing/deleting another pack must not evict the selected model. */
+    @Synchronized
+    fun releaseIfDirectory(directory: String) {
+        if (cachedPath?.startsWith(directory.trimEnd('/') + "/") == true) release()
+    }
+
     private fun releaseLocked() {
         val e = cached ?: return
         cached = null

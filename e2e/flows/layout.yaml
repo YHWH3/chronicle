@@ -1,0 +1,33 @@
+appId: com.chronicle.app
+---
+- waitForAnimationToEnd
+# TCG cold starts can leave Android's ANR popup over a drawn Today screen.
+# Keep that diagnostic artifact; don't change the recording FGS for the fixture.
+- tapOn:
+    text: '^Wait$'
+    optional: true
+- waitForAnimationToEnd
+- assertVisible: '^Speak$'
+- assertVisible: 'No notes yet today.'
+- takeScreenshot: today-empty
+- tapOn: '^Write$'
+- tapOn: 'Type your note…'
+- inputText: 'remind me to call mum tomorrow at 5'
+- tapOn: '^Keep$'
+- assertVisible: '^Saved$'
+- takeScreenshot: saved
+- tapOn: 'New note'
+- tapOn: '^Speak$'
+- takeScreenshot: today-with-note
+- tapOn: '^Record$'
+- assertVisible: 'Recording…'
+- takeScreenshot: recording
+- tapOn: '^Discard$'
+- tapOn: '^Journal$'
+- assertVisible: 'Call mum|remind me to call mum tomorrow at 5'
+- takeScreenshot: journal
+- tapOn: '^Story$'
+- takeScreenshot: story
+- tapOn: '^To-dos$'
+- assertVisible: 'Call mum'
+- takeScreenshot: todos

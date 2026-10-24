@@ -1,0 +1,49 @@
+appId: com.chronicle.app
+---
+- waitForAnimationToEnd
+- tapOn: '^Write$'
+- tapOn: 'Type your note…'
+- inputText: 'I should call Zora .  I should pay theatre fees .'
+- tapOn: '^Keep$'
+- extendedWaitUntil:
+    visible: '^Saved$'
+    timeout: 120000
+- tapOn: '^Open note$'
+- scrollUntilVisible:
+    element: '^Find tasks$'
+    timeout: 120000
+- tapOn: '^Find tasks$'
+- assertVisible: '^Review tasks$'
+- assertVisible: 'A task is something to do\.[\s\S]*'
+- assertVisible: '^Call Zora$'
+- assertVisible: '^Pay theatre fees$'
+- assertNotVisible: '^Add reminder$'
+- tapOn:
+    text: '^Add task$'
+    index: 0
+- assertNotVisible: '^Call Zora$'
+- takeScreenshot: note-tasks-review
+- tapOn: '^Close$'
+- tapOn: '^Find tasks$'
+- assertVisible: '^Pay theatre fees$'
+- assertNotVisible: '^Call Zora$'
+- tapOn: '^Skip$'
+- assertVisible: 'No new tasks found\.[\s\S]*'
+- tapOn: '^Close$'
+- tapOn: '^Clean up$'
+- assertVisible: '^Review cleanup$'
+- assertVisible: 'Basic only fixes spacing[\s\S]*'
+- tapOn: '^Show original$'
+- assertVisible: 'I should call Zora \.  I should pay theatre fees \.'
+- takeScreenshot: note-cleanup-preview
+- tapOn: '^Apply cleanup$'
+- assertVisible: 'I should call Zora\. I should pay theatre fees\.'
+- assertVisible: '^Undo cleanup$'
+- takeScreenshot: note-cleanup-applied
+- tapOn: '^Undo cleanup$'
+- assertVisible: 'I should call Zora \.  I should pay theatre fees \.'
+- assertNotVisible: '^Undo cleanup$'
+- tapOn: '^To-dos$'
+- assertVisible: '^Call Zora$'
+- assertNotVisible: '^Pay theatre fees$'
+- takeScreenshot: note-accepted-task

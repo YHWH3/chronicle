@@ -1,16 +1,16 @@
 appId: com.chronicle.app
 ---
 - waitForAnimationToEnd
-- tapOn: '^Intentions$'
+- tapOn: '^To-dos$'
 # Reminder pills only render once the field is focused/has text.
-- tapOn: 'Add an intention…'
+- tapOn: 'Add a to-do…'
 - inputText: 'Water the fern'
 - tapOn: '^Tomorrow$'
-- tapOn: '^Add intention$'
+- tapOn: '^Add to-do$'
 - assertVisible: 'Water the fern'
 # TOMORROW resolves to next-day 09:00; row meta reads "Tomorrow · 09:00".
 - assertVisible: 'Tomorrow · 09:00[\s\S]*'
-- assertVisible: 'Add an intention…'
+- assertVisible: 'Add a to-do…'
 # Done toggle: circle check carries "Mark done"/"Mark not done".
 - hideKeyboard
 - tapOn: 'Mark done'

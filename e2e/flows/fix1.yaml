@@ -1,11 +1,11 @@
 appId: com.chronicle.app
 ---
 # Regression: cancelling a model download must restore the Download action.
-# Self-contained: Today → Settings → The Ear → Parakeet → model page.
+# Self-contained: Today → Settings → Voice to text → Parakeet → model page.
 - waitForAnimationToEnd
 - tapOn: 'Settings'
-- tapOn: 'The Ear'
-- tapOn: '^Parakeet$'
+- tapOn: 'Voice to text'
+- tapOn: '^Better voice typing · 487 MB · offline$'
 - tapOn: 'Parakeet TDT 0.6B'
 - scrollUntilVisible:
     element: 'Download · ≈ 487 MB'

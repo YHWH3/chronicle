@@ -23,6 +23,7 @@ data class JournalEntry(
     val audioPath: String?,
     val durationMs: Long,
     val transcriptStatus: TranscriptStatus = TranscriptStatus.READY,
+    val engineLabel: String? = null,
 )
 
 fun EntryEntity.toDomain(): JournalEntry {

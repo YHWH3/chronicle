@@ -9,6 +9,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.chronicle.app.R
 import com.chronicle.app.data.MindBackend
 import com.chronicle.app.data.SttEngine
 import com.chronicle.app.mind.ModelKind
@@ -50,7 +52,7 @@ fun SettingsPrivacyPage(viewModel: SettingsViewModel, onBack: () -> Unit) {
             },
         )
         PrivacyItem(
-            label = "Finding intentions",
+            label = stringResource(R.string.smart_todos),
             body = mindLine(state),
         )
         PrivacyItem(
@@ -82,7 +84,7 @@ private fun PrivacyItem(label: String, body: String) {
 }
 
 private fun voiceLine(state: SettingsUiState): String {
-    val parakeetReady = state.models[ModelKind.PARAKEET_STT] is ModelState.Installed
+    val parakeetReady = state.models[ModelKind.PARAKEET_STT.packId] is ModelState.Installed
     return when {
         state.sttEngine == SttEngine.PARAKEET && parakeetReady ->
             "Recorded on this phone and transcribed by Parakeet, entirely on-device. " +
@@ -97,41 +99,36 @@ private fun voiceLine(state: SettingsUiState): String {
     }
 }
 
+@Composable
 private fun mindLine(state: SettingsUiState): String = when (state.mindBackend) {
     MindBackend.QUIET_PARSER ->
-        "The Quiet parser reads them on this phone. No model, no network."
-    MindBackend.ON_DEVICE ->
-        if (state.models[ModelKind.LOCAL_LLM] is ModelState.Installed) {
-            "Llama 3.2 3B reads them on this phone. Nothing is sent."
+        stringResource(R.string.privacy_basic)
+    MindBackend.AUTO, MindBackend.ON_DEVICE ->
+        if (state.models[if (state.selectedSmartModelId == "custom") ModelKind.LOCAL_LLM.packId
+            else com.chronicle.app.mind.SmartModels.find(state.selectedSmartModelId)?.packId] is ModelState.Installed) {
+            stringResource(R.string.privacy_local_model, state.effectiveMindLabel)
         } else {
-            "The on-device model is selected but isn't installed, " +
-                "so the Quiet parser runs on this phone instead."
+            stringResource(R.string.privacy_model_missing)
         }
     MindBackend.OPENROUTER ->
         if (state.openRouterKey.isBlank()) {
-            "OpenRouter is selected but has no API key, " +
-                "so the Quiet parser runs on this phone instead."
+            stringResource(R.string.privacy_openrouter_missing)
         } else {
-            "Entry text is sent to OpenRouter " +
-                "(model ${state.openRouterModel.removeSuffix(":free")}) when you save. " +
-                "If it fails or takes more than 20 seconds, " +
-                "the Quiet parser reads them here instead."
+            stringResource(R.string.privacy_openrouter, state.openRouterModel.removeSuffix(":free"))
         }
     MindBackend.CUSTOM ->
         if (state.customBaseUrl.isBlank() || state.customModel.isBlank()) {
-            "A custom endpoint is selected but has no URL or model, " +
-                "so the Quiet parser runs on this phone instead."
+            stringResource(R.string.privacy_endpoint_missing)
         } else {
-            "Entry text is sent to ${customHost(state.customBaseUrl)} when you save — " +
-                "HTTPS only. If it fails or takes more than 20 seconds, " +
-                "the Quiet parser reads them here instead."
+            stringResource(R.string.privacy_endpoint, customHost(state.customBaseUrl))
         }
 }
 
 // ————— About —————
 
 @Composable
-fun SettingsAboutPage(onBack: () -> Unit) {
+fun SettingsAboutPage(onBack: () -> Unit, viewModel: SettingsViewModel? = null) {
+    val installs by (viewModel?.state ?: kotlinx.coroutines.flow.MutableStateFlow(SettingsUiState())).collectAsStateWithLifecycle()
     SettingsPage(title = "About", onBack = onBack) {
         Text(
             text = "Chronicle",
@@ -165,6 +162,12 @@ fun SettingsAboutPage(onBack: () -> Unit) {
             color = Chron.palette.textTertiary,
         )
         Spacer(Modifier.height(Spacing.x6))
+        if (installs.models[com.chronicle.app.mind.SmartModels.all[0].packId] == ModelState.Installed) {
+            Text(stringResource(R.string.hf_qwen_credit), style = Chron.type.body)
+        }
+        if (com.chronicle.app.mind.SmartModels.all.drop(1).any { installs.models[it.packId] == ModelState.Installed }) {
+            Text(stringResource(R.string.hf_llama_credit), style = Chron.type.body)
+        }
         Text(
             text = "Built with",
             style = Chron.type.section,

@@ -10,6 +10,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -38,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
@@ -47,6 +51,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.chronicle.app.ui.design.phoneTime
 import com.chronicle.app.R
 import com.chronicle.app.domain.EntryKind
 import com.chronicle.app.domain.JournalEntry
@@ -62,14 +67,15 @@ import com.chronicle.app.ui.design.SurfaceLevel
 import com.chronicle.app.ui.design.TickTrack
 import com.chronicle.app.ui.theme.ChronicleMotion
 import com.chronicle.app.ui.vm.JournalViewModel
+import com.chronicle.app.ui.vm.NoteOperation
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @Composable
-fun JournalScreen(viewModel: JournalViewModel, onOpenToday: () -> Unit) {
+fun JournalScreen(viewModel: JournalViewModel, onOpenToday: () -> Unit, openEntryId: Long? = null) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    var expandedId by remember { mutableStateOf<Long?>(null) }
+    var expandedId by remember { mutableStateOf<Long?>(openEntryId) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().statusBarsPadding(),
@@ -187,6 +193,10 @@ fun JournalScreen(viewModel: JournalViewModel, onOpenToday: () -> Unit) {
                                     expandedId = null
                                     viewModel.delete(entry)
                                 },
+                                canUndoCleanup = entry.id in state.cleanupUndoIds,
+                                onCleanup = { viewModel.workOnNote(entry, NoteOperation.CLEANUP) },
+                                onFindTasks = { viewModel.workOnNote(entry, NoteOperation.TASKS) },
+                                onUndoCleanup = { viewModel.undoCleanup(entry.id) },
                             )
                             if (index < day.entries.lastIndex) Hairline()
                         }
@@ -195,8 +205,10 @@ fun JournalScreen(viewModel: JournalViewModel, onOpenToday: () -> Unit) {
             }
         }
     }
+    state.review?.let { NoteReviewDialog(it, viewModel) }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun JournalEntryRow(
     entry: JournalEntry,
@@ -209,6 +221,10 @@ private fun JournalEntryRow(
     onPlay: () -> Unit,
     onRetryTranscription: () -> Unit,
     onDelete: () -> Unit,
+    canUndoCleanup: Boolean,
+    onCleanup: () -> Unit,
+    onFindTasks: () -> Unit,
+    onUndoCleanup: () -> Unit,
 ) {
     val p = Chron.palette
     val type = Chron.type
@@ -237,12 +253,10 @@ private fun JournalEntryRow(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = entry.createdAt.format(
-                    DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH),
-                ),
+                text = phoneTime(entry.createdAt),
                 style = type.numeric,
                 color = p.textTertiary,
-                modifier = Modifier.width(46.dp),
+                modifier = Modifier.widthIn(min = 46.dp),
             )
             when (entry.kind) {
                 EntryKind.VOICE -> {
@@ -272,6 +286,10 @@ private fun JournalEntryRow(
             }
         }
 
+        if (expanded && entry.engineLabel != null) {
+            Text(stringResource(R.string.engine_details, entry.engineLabel),
+                style = type.meta, color = p.textTertiary)
+        }
         if (entry.kind == EntryKind.VOICE && entry.transcript.isNotBlank()) {
             Spacer(Modifier.height(10.dp))
             Text(
@@ -308,6 +326,14 @@ private fun JournalEntryRow(
 
         if (expanded) {
             Spacer(Modifier.height(8.dp))
+            if (entry.transcript.isNotBlank() && !needsTranscript && !transcribing) {
+                Text(stringResource(R.string.note_model_help), style = type.meta, color = p.textTertiary)
+                FlowRow(Modifier.fillMaxWidth()) {
+                    GhostButton(stringResource(R.string.note_cleanup), onCleanup, color = p.accent)
+                    GhostButton(stringResource(R.string.note_find_tasks), onFindTasks, color = p.accent)
+                    if (canUndoCleanup) GhostButton(stringResource(R.string.note_undo_cleanup), onUndoCleanup)
+                }
+            }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.align(Alignment.End),

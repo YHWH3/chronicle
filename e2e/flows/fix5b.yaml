@@ -15,11 +15,11 @@ appId: com.chronicle.app
 - takeScreenshot: fix5-nudge-off
 - pressKey: back
 - pressKey: back
-- tapOn: '^Intentions$'
-- tapOn: 'Add an intention…'
+- tapOn: '^To-dos$'
+- tapOn: 'Add a to-do…'
 - inputText: 'mop the hallway'
 - tapOn: '^Tonight$'
-- tapOn: '^Add intention$'
+- tapOn: '^Add to-do$'
 - scrollUntilVisible:
     element: 'mop the hallway'
     direction: down

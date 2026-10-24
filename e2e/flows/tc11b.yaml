@@ -5,8 +5,8 @@ appId: com.chronicle.app
 # the Failed/"Try again" terminal state alongside the clean path.
 - waitForAnimationToEnd
 - tapOn: 'Settings'
-- tapOn: 'The Mind'
-- tapOn: '^On-device model$'
+- tapOn: 'Advanced'
+- tapOn: '^Custom model$'
 - tapOn: '^On-device language model$'
 - scrollUntilVisible:
     element: 'Download source'

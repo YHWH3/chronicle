@@ -1,3 +1,4 @@
+import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -7,12 +8,20 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+val hfLocalProperties = Properties().apply {
+    val local = rootProject.file("local.properties")
+    if (local.exists()) local.inputStream().use { load(it) }
+}
+val hfClientId = hfLocalProperties.getProperty("hf.oauthClientId", "")
+    .replace("\\", "\\\\").replace("\"", "\\\"")
+
 android {
     namespace = "com.chronicle.app"
     compileSdk = 36
 
     defaultConfig {
         applicationId = "com.chronicle.app"
+        buildConfigField("String", "HF_OAUTH_CLIENT_ID", "\"" + hfClientId + "\"")
         minSdk = 26
         targetSdk = 36
         versionCode = 1
@@ -38,6 +47,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -68,6 +78,8 @@ dependencies {
     implementation(libs.core.ktx)
     implementation(libs.coroutines.android)
     implementation(libs.mediapipe.genai)
+    implementation(libs.work.runtime.ktx)
+    implementation(libs.browser)
     implementation(libs.commons.compress)
     implementation(libs.sherpa.onnx)
     implementation(libs.sherpa.onnxruntime)

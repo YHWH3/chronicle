@@ -1,0 +1,34 @@
+appId: com.chronicle.app
+---
+- waitForAnimationToEnd
+- tapOn: 'Settings'
+- tapOn: 'Smart to-dos[\s\S]*'
+- assertVisible: '^Qwen 1.5B$'
+- assertVisible: 'Recommended[\s\S]*No account needed\.'
+- assertVisible: '^Llama 3.2 1B$'
+- scrollUntilVisible:
+    element: '^Llama 3.2 3B$'
+    direction: down
+- assertVisible: 'Most accurate[\s\S]*Hugging Face account\.'
+- scrollUntilVisible:
+    element: '^Basic \(built in\)$'
+    direction: down
+- assertVisible: 'Built in\. Catches clear phrases[\s\S]*'
+- scrollUntilVisible:
+    element: '^Llama 3.2 1B$'
+    direction: up
+- tapOn: '^Llama 3.2 1B$'
+- assertVisible: 'Meta asks you to accept their licence first[\s\S]*'
+- takeScreenshot: smart2-licence
+- tapOn: 'Continue'
+- assertVisible: 'Use an access token instead'
+- assertVisible: 'Open token settings'
+- assertVisible: 'Hugging Face access token'
+- takeScreenshot: smart2-token-fallback
+- tapOn: 'Cancel'
+- pressKey: back
+- tapOn: 'Advanced'
+- tapOn: 'Test smart mode'
+- assertVisible: 'Install the selected model first[\s\S]*'
+- assertVisible: 'Run five checks'
+- takeScreenshot: smart2-spike

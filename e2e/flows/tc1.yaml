@@ -12,8 +12,8 @@ appId: com.chronicle.app
 # Speak/Write mode pills (sentence case).
 - assertVisible: '^Speak$'
 - assertVisible: '^Write$'
-- assertVisible: 'Tap to speak your day'
+- assertVisible: 'Tap to talk'
 - assertVisible: '^Today$'
 - assertVisible: '^Journal$'
 - assertVisible: '^Story$'
-- assertVisible: '^Intentions$'
+- assertVisible: '^To-dos$'

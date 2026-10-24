@@ -5,8 +5,8 @@ appId: com.chronicle.app
 # a fast failure, "Try again").
 - waitForAnimationToEnd
 - tapOn: 'Settings'
-- tapOn: 'The Ear'
-- tapOn: '^Parakeet$'
+- tapOn: 'Voice to text'
+- tapOn: '^Better voice typing · 487 MB · offline$'
 - tapOn: 'Parakeet TDT 0.6B'
 - tapOn: '(Download · ≈ 487 MB|Try again)'
 - assertVisible: '(Cancel|Try again)'

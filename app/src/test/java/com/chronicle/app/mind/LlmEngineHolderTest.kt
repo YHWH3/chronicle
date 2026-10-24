@@ -11,6 +11,15 @@ import org.junit.Test
  * the key is stable, and actually frees the native wrapper on release.
  */
 class LlmEngineHolderTest {
+    @Test fun `only a change inside the cached pack releases it`() {
+        val holder = LlmEngineHolder { path -> FakeEngine(path) }
+        val engine = holder.acquire("/models/llm/qwen-other/model.task")
+        holder.releaseIfDirectory("/models/llm/qwen")
+        org.junit.Assert.assertFalse(engine.closed)
+        assertSame(engine, holder.acquire(engine.path))
+        holder.releaseIfDirectory("/models/llm/qwen-other")
+        assertTrue(engine.closed)
+    }
 
     private class FakeEngine(val path: String) : ReleasableEngine {
         var closed = false

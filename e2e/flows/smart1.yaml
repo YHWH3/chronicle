@@ -1,0 +1,25 @@
+appId: com.chronicle.app
+---
+- waitForAnimationToEnd
+- assertNotVisible: 'Get Smart to-dos'
+- tapOn: '^Write$'
+- tapOn: 'Type your note…'
+- inputText: 'first note'
+- tapOn: '^Keep$'
+- assertVisible: '^Saved$'
+- tapOn: 'New note'
+- tapOn: '^Speak$'
+- assertVisible: 'Get Smart to-dos'
+- assertVisible: 'Understands your notes better[\s\S]*'
+- assertVisible: '1 note today ›'
+- tapOn: 'Download'
+# The harness disables Wi-Fi before this flow. No model bytes are pulled.
+- assertVisible: 'Waiting for Wi-Fi'
+- tapOn: 'Use mobile data'
+- assertVisible: '(Downloading… [0-9]+%|Couldn.t finish.)'
+- tapOn:
+    text: 'Cancel'
+    optional: true
+- tapOn: 'Other models'
+- assertVisible: 'Wi-Fi only'
+- takeScreenshot: smart1-mobile-constraint

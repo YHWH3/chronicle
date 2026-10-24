@@ -3,8 +3,8 @@ appId: com.chronicle.app
 - waitForAnimationToEnd
 # Reminder pills now wrap in a FlowRow — all four visible once the field
 # is focused, no horizontal scroll needed.
-- tapOn: '^Intentions$'
-- tapOn: 'Add an intention…'
+- tapOn: '^To-dos$'
+- tapOn: 'Add a to-do…'
 - inputText: 'x'
 - assertVisible: 'No reminder'
 - assertVisible: 'In an hour'

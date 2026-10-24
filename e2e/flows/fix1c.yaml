@@ -3,9 +3,9 @@ appId: com.chronicle.app
 # Same cancel-restores-Download regression, from a cold gear-icon entry.
 - waitForAnimationToEnd
 - tapOn: 'Settings'
-- assertVisible: 'The quiet particulars\.'
-- tapOn: 'The Ear'
-- tapOn: '^Parakeet$'
+- assertNotVisible: 'The quiet particulars\.'
+- tapOn: 'Voice to text'
+- tapOn: '^Better voice typing · 487 MB · offline$'
 - tapOn: 'Parakeet TDT 0.6B'
 - scrollUntilVisible:
     element: 'Download · ≈ 487 MB'

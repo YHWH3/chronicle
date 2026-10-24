@@ -32,7 +32,11 @@ for i in 1 2 3; do
   echo "[relaunch $i: process not up]"
 done
 for i in 1 2 3 4 5; do
-  out=$(maestro test --udid "$DEVICE" "$F" 2>&1)
+  if [[ -n "${E2E_REPORT_DIR:-}" ]]; then
+    out=$(maestro test --udid "$DEVICE" --test-output-dir "$E2E_REPORT_DIR/attempt-$i" "$F" 2>&1)
+  else
+    out=$(maestro test --udid "$DEVICE" "$F" 2>&1)
+  fi
   rc=$?
   echo "$out" | grep -v "^\s*$" | tail -25
   if echo "$out" | grep -qiE "device offline|not connected"; then

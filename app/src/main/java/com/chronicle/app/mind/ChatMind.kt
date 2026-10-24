@@ -86,9 +86,18 @@ class ChatMind internal constructor(
         }
     }
 
-    override suspend fun extract(text: String, now: LocalDateTime): MindResult =
+    override suspend fun extract(text: String, now: LocalDateTime): MindResult {
+        val content = complete(text, now, MIND_PROMPT)
+        return MindResultParser.parse(content, now)
+            ?: error("Unparseable reply: ${errorSnippet(content)}")
+    }
+
+    override suspend fun cleanup(text: String, now: LocalDateTime): String =
+        NoteCleanupParser.parse(complete(text, now, NOTE_CLEANUP_PROMPT))
+
+    private suspend fun complete(text: String, now: LocalDateTime, systemPrompt: String): String =
         withContext(Dispatchers.IO) {
-            val call = newCall(requestSpec(text, now))
+            val call = newCall(requestSpec(text, now, systemPrompt))
             val reply = coroutineScope {
                 val flight = async { call.run() }
                 try {
@@ -116,8 +125,7 @@ class ChatMind internal constructor(
                 ?.optJSONObject("message")
                 ?.optString("content")
                 .orEmpty()
-            MindResultParser.parse(content, now)
-                ?: error("Unparseable reply: ${errorSnippet(content)}")
+            content
         }
 
     /**
@@ -126,7 +134,7 @@ class ChatMind internal constructor(
      * multi-megabyte payload, and the Authorization header is only sent
      * when an API key is actually configured — never "Bearer ".
      */
-    internal fun requestSpec(text: String, now: LocalDateTime): RequestSpec {
+    internal fun requestSpec(text: String, now: LocalDateTime, systemPrompt: String = MIND_PROMPT): RequestSpec {
         val headers = LinkedHashMap<String, String>()
         headers["Content-Type"] = "application/json"
         if (apiKey.isNotBlank()) headers["Authorization"] = "Bearer $apiKey"
@@ -138,7 +146,7 @@ class ChatMind internal constructor(
             url = "${baseUrl.trimEnd('/')}/chat/completions",
             headers = headers,
             body = MindResultParser
-                .requestBody(model, text.take(MAX_TRANSCRIPT_CHARS), now)
+                .requestBody(model, text.take(MAX_TRANSCRIPT_CHARS), now, systemPrompt)
                 .toString(),
         )
     }

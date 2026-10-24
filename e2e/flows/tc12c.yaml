@@ -2,7 +2,7 @@ appId: com.chronicle.app
 ---
 # Variant of tc12's tail: Stretch task survives a cold relaunch.
 - waitForAnimationToEnd
-- tapOn: '^Intentions$'
+- tapOn: '^To-dos$'
 - assertVisible: 'Stretch'
 - assertVisible: 'Tomorrow · 21:00[\s\S]*'
 - takeScreenshot: tc12-stretch

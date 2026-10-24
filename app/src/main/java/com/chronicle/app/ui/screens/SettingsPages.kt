@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
@@ -50,6 +51,7 @@ import com.chronicle.app.R
 import com.chronicle.app.data.MindBackend
 import com.chronicle.app.data.SttEngine
 import com.chronicle.app.data.ThemeMode
+import com.chronicle.app.mind.hasUnmeteredNetwork
 import com.chronicle.app.mind.ModelKind
 import com.chronicle.app.mind.ModelState
 import com.chronicle.app.mind.OPENROUTER_FREE_MODELS
@@ -296,20 +298,20 @@ fun SettingsNudgePage(viewModel: SettingsViewModel, onBack: () -> Unit) {
 @Composable
 fun SettingsEarPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (String) -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    SettingsPage(title = "The Ear", onBack = onBack) {
+    SettingsPage(title = stringResource(R.string.voice_to_text), onBack = onBack) {
         Text(
-            text = "How your voice becomes words.",
+            text = stringResource(R.string.voice_to_text_description),
             style = Chron.type.serifItalic,
             color = Chron.palette.textSecondary,
         )
         Spacer(Modifier.height(Spacing.x6))
         OptionCard(
-            title = "Android speech recognition",
-            subtitle = "Built into Android. Nothing to download.",
+            title = stringResource(R.string.phone_voice_typing),
+            subtitle = stringResource(R.string.settings_built_into_android_nothing_to_download),
             meta = if (state.systemSttAvailable) {
-                "On this phone · no download"
+                stringResource(R.string.voice_no_download)
             } else {
-                "Not available on this device"
+                stringResource(R.string.voice_unavailable)
             },
             selected = state.sttEngine == SttEngine.SYSTEM,
             onClick = { viewModel.setSttEngine(SttEngine.SYSTEM) },
@@ -317,10 +319,10 @@ fun SettingsEarPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (S
         Spacer(Modifier.height(Spacing.x3))
         Column {
             OptionCard(
-                title = "Parakeet",
-                subtitle = "More accurate on-device transcription.",
+                title = stringResource(R.string.better_voice_typing),
+                subtitle = stringResource(R.string.better_voice_description),
                 // Measured archive size (HEAD-verified) — ModelKind.nominalBytes.
-                meta = "On this phone · ≈ ${ModelKind.PARAKEET_STT.nominalBytes / 1_000_000} MB download",
+                meta = stringResource(R.string.voice_download_size, ModelKind.PARAKEET_STT.nominalBytes / 1_000_000),
                 selected = state.sttEngine == SttEngine.PARAKEET,
                 onClick = { viewModel.setSttEngine(SttEngine.PARAKEET) },
             )
@@ -333,13 +335,13 @@ fun SettingsEarPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (S
                     Spacer(Modifier.height(Spacing.x3))
                     ModelStatusRow(
                         kind = ModelKind.PARAKEET_STT,
-                        state = state.models[ModelKind.PARAKEET_STT] ?: ModelState.NotInstalled,
+                        state = state.models[ModelKind.PARAKEET_STT.packId] ?: ModelState.NotInstalled,
                         onOpen = { onOpen(Routes.settingsModel(ModelKind.PARAKEET_STT)) },
                     )
-                    if (state.models[ModelKind.PARAKEET_STT] !is ModelState.Installed) {
+                    if (state.models[ModelKind.PARAKEET_STT.packId] !is ModelState.Installed) {
                         Spacer(Modifier.height(Spacing.x2))
                         Text(
-                            text = "Until it's installed, Chronicle uses Android's recogniser.",
+                            text = stringResource(R.string.phone_voice_until_ready),
                             style = Chron.type.meta,
                             color = Chron.palette.textTertiary,
                             modifier = Modifier.padding(start = 4.dp),
@@ -351,15 +353,106 @@ fun SettingsEarPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (S
     }
 }
 
+@Composable
+fun SettingsMindPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (String) -> Unit) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val setup by (viewModel.smartSetup?.state ?: kotlinx.coroutines.flow.MutableStateFlow(
+        com.chronicle.app.mind.SmartSetupState())).collectAsStateWithLifecycle()
+    val ram = viewModel.smartSetup?.totalRam ?: 0L
+    var licenceModel by remember { mutableStateOf<com.chronicle.app.mind.SmartModel?>(null) }
+    var deleting by remember { mutableStateOf<com.chronicle.app.mind.SmartModel?>(null) }
+    licenceModel?.let { model ->
+        HfLicenceDialog(model, viewModel, onDismiss = { licenceModel = null })
+    }
+    deleting?.let { model ->
+        androidx.compose.ui.window.Dialog(onDismissRequest = { deleting = null }) {
+            GlassSurface(level = SurfaceLevel.Elevated, shape = RoundedCornerShape(Radius.md)) {
+                Column(Modifier.padding(20.dp)) {
+                    Text(stringResource(R.string.delete_model_question, model.displayName), style = Chron.type.headline)
+                    Text(stringResource(R.string.delete_model_help), style = Chron.type.body)
+                    GhostButton(stringResource(R.string.delete_model), {
+                        viewModel.deleteSmartModel(model.id); deleting = null
+                    })
+                    GhostButton(stringResource(R.string.cancel_download), { deleting = null })
+                }
+            }
+        }
+    }
+    SettingsPage(title = stringResource(R.string.smart_todos), onBack = onBack) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.wifi_only), style = Chron.type.control, modifier = Modifier.weight(1f))
+            SoftSwitch(checked = !state.allowMobileData,
+                onChange = { viewModel.smartSetup?.setMobileData(!it) })
+        }
+        Spacer(Modifier.height(Spacing.x3))
+        com.chronicle.app.mind.SmartModels.all.forEach { model ->
+            val supported = model.supportedBy(ram)
+            val status = state.models[model.packId] ?: ModelState.NotInstalled
+            val selected = state.mindBackend in listOf(MindBackend.AUTO, MindBackend.ON_DEVICE) &&
+                state.selectedSmartModelId == model.id
+            OptionCard(
+                title = model.displayName,
+                subtitle = smartModelDescription(model.id),
+                meta = if (supported) stringResource(R.string.offline)
+                    else stringResource(R.string.more_memory_needed),
+                selected = selected, enabled = supported,
+                onClick = {
+                    viewModel.selectSmartModel(model.id)
+                    if (model.gated && status != ModelState.Installed) licenceModel = model
+                },
+            )
+            if (supported && selected) {
+                Spacer(Modifier.height(Spacing.x2))
+                val controller = viewModel.smartSetup
+                if (controller != null) {
+                    val shown = if (setup.phase == com.chronicle.app.mind.SmartSetupPhase.HIDDEN)
+                        setup.copy(phase = com.chronicle.app.mind.SmartSetupPhase.READY) else setup
+                    SmartSetupCard(shown, {
+                        if (model.gated && status != ModelState.Installed) licenceModel = model
+                        else controller.download()
+                    }, null, controller::pause, controller::cancel, controller::useMobileData,
+                        showReason = true)
+                }
+            }
+            if (status == ModelState.Installed) {
+                GhostButton(stringResource(R.string.delete_model), { deleting = model })
+            }
+            Spacer(Modifier.height(Spacing.x3))
+        }
+        MindCard(
+            backend = MindBackend.QUIET_PARSER,
+            title = stringResource(R.string.basic),
+            subtitle = stringResource(R.string.basic_description),
+            meta = stringResource(R.string.offline), state = state, viewModel = viewModel,
+        )
+    }
+}
+
+@Composable
+private fun smartModelDescription(id: String): String = stringResource(when (id) {
+    "llama3_2_1b" -> R.string.llama_1b_description
+    "llama3_2_3b" -> R.string.llama_3b_description
+    else -> R.string.qwen_description
+})
+
 // ————— The Mind —————
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun SettingsMindPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (String) -> Unit) {
+fun SettingsAdvancedPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (String) -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    SettingsPage(title = "The Mind", onBack = onBack) {
+    SettingsPage(title = stringResource(R.string.advanced), onBack = onBack) {
+        if (com.chronicle.app.BuildConfig.DEBUG) {
+            GhostButton(label = stringResource(R.string.test_smart_mode),
+                onClick = { onOpen(Routes.SETTINGS_SMART_TEST) })
+            Spacer(Modifier.height(Spacing.x4))
+        }
+        if (state.hfSignedIn) {
+            GhostButton(stringResource(R.string.hf_sign_out), { viewModel.signOutHf() })
+            Text(stringResource(R.string.hf_sign_out_help), style = Chron.type.meta)
+        }
         Text(
-            text = "How your words become intentions.",
+            text = stringResource(R.string.advanced_help),
             style = Chron.type.serifItalic,
             color = Chron.palette.textSecondary,
         )
@@ -367,19 +460,19 @@ fun SettingsMindPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.x3)) {
             MindCard(
                 backend = MindBackend.QUIET_PARSER,
-                title = "Quiet parser",
-                subtitle = "Finds reminders with simple rules. Instant.",
-                meta = "On this phone · No internet · Nothing leaves",
+                title = stringResource(R.string.basic),
+                subtitle = stringResource(R.string.basic_description_short),
+                meta = stringResource(R.string.settings_on_this_phone_no_internet_nothing_leaves),
                 state = state,
                 viewModel = viewModel,
             )
             MindCard(
                 backend = MindBackend.ON_DEVICE,
-                title = "On-device model",
+                title = stringResource(R.string.custom_model),
                 // Bring-your-own bundle — typical Llama 3.2 3B .task builds run
                 // ≈ 2–3 GB; the model page shows the real size from Content-Length.
-                subtitle = "Llama 3.2 3B reads entries on this phone. ≈ 2–3 GB download.",
-                meta = "On this phone · No internet · Nothing leaves",
+                subtitle = stringResource(R.string.custom_model_description),
+                meta = stringResource(R.string.settings_on_this_phone_no_internet_nothing_leaves),
                 state = state,
                 viewModel = viewModel,
             ) {
@@ -387,13 +480,13 @@ fun SettingsMindPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (
                     Spacer(Modifier.height(Spacing.x3))
                     ModelStatusRow(
                         kind = ModelKind.LOCAL_LLM,
-                        state = state.models[ModelKind.LOCAL_LLM] ?: ModelState.NotInstalled,
+                        state = state.models[ModelKind.LOCAL_LLM.packId] ?: ModelState.NotInstalled,
                         onOpen = { onOpen(Routes.settingsModel(ModelKind.LOCAL_LLM)) },
                     )
-                    if (state.models[ModelKind.LOCAL_LLM] !is ModelState.Installed) {
+                    if (state.models[ModelKind.LOCAL_LLM.packId] !is ModelState.Installed) {
                         Spacer(Modifier.height(Spacing.x2))
                         Text(
-                            text = "Until it's installed, Chronicle uses the Quiet parser.",
+                            text = stringResource(R.string.basic_until_ready),
                             style = Chron.type.meta,
                             color = Chron.palette.textTertiary,
                             modifier = Modifier.padding(start = 4.dp),
@@ -403,9 +496,9 @@ fun SettingsMindPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (
             }
             MindCard(
                 backend = MindBackend.OPENROUTER,
-                title = "OpenRouter",
-                subtitle = "Free cloud models. Needs an API key.",
-                meta = "OpenRouter's servers · Needs internet · Entry text is sent",
+                title = stringResource(R.string.settings_openrouter),
+                subtitle = stringResource(R.string.settings_free_cloud_models_needs_an_api_key),
+                meta = stringResource(R.string.settings_openrouter_s_servers_needs_internet_entry_text_is_sent),
                 state = state,
                 viewModel = viewModel,
             ) {
@@ -414,11 +507,11 @@ fun SettingsMindPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (
                     SecretField(
                         value = state.openRouterKey,
                         onChange = { viewModel.setOpenRouter(it, state.openRouterModel) },
-                        placeholder = "OpenRouter API key (sk-or-…)",
+                        placeholder = stringResource(R.string.settings_openrouter_api_key_sk_or),
                     )
                     Spacer(Modifier.height(Spacing.x3))
                     Text(
-                        text = "Free models",
+                        text = stringResource(R.string.settings_free_models),
                         style = Chron.type.meta,
                         color = Chron.palette.textTertiary,
                         modifier = Modifier.padding(start = 4.dp),
@@ -446,7 +539,7 @@ fun SettingsMindPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (
                     if (state.openRouterKey.isBlank()) {
                         Spacer(Modifier.height(Spacing.x2))
                         Text(
-                            text = "Without a key, Chronicle uses the Quiet parser.",
+                            text = stringResource(R.string.basic_without_key),
                             style = Chron.type.meta,
                             color = Chron.palette.textTertiary,
                             modifier = Modifier.padding(start = 4.dp),
@@ -456,9 +549,9 @@ fun SettingsMindPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (
             }
             MindCard(
                 backend = MindBackend.CUSTOM,
-                title = "Custom endpoint",
-                subtitle = "Any OpenAI-compatible server.",
-                meta = "Your endpoint · Needs internet · Entry text is sent",
+                title = stringResource(R.string.settings_custom_endpoint),
+                subtitle = stringResource(R.string.settings_any_openai_compatible_server),
+                meta = stringResource(R.string.settings_your_endpoint_needs_internet_entry_text_is_sent),
                 state = state,
                 viewModel = viewModel,
             ) {
@@ -471,12 +564,12 @@ fun SettingsMindPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (
                                 it.trim(), state.customModel, state.customKey,
                             )
                         },
-                        placeholder = "Base URL (https://api.openai.com/v1)",
+                        placeholder = stringResource(R.string.settings_base_url_https_api_openai_com_v1),
                         singleLine = true,
                     )
                     Spacer(Modifier.height(Spacing.x2))
                     Text(
-                        text = "HTTPS required — cleartext endpoints are refused.",
+                        text = stringResource(R.string.settings_https_required_cleartext_endpoints_are_refused),
                         style = Chron.type.meta,
                         color = Chron.palette.textTertiary,
                         modifier = Modifier.padding(start = 4.dp),
@@ -487,7 +580,7 @@ fun SettingsMindPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (
                         onChange = {
                             viewModel.setCustomEndpoint(state.customBaseUrl, it, state.customKey)
                         },
-                        placeholder = "Model (gpt-4o-mini, …)",
+                        placeholder = stringResource(R.string.settings_model_gpt_4o_mini),
                         singleLine = true,
                     )
                     Spacer(Modifier.height(Spacing.x3))
@@ -496,12 +589,12 @@ fun SettingsMindPage(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (
                         onChange = {
                             viewModel.setCustomEndpoint(state.customBaseUrl, state.customModel, it)
                         },
-                        placeholder = "API key (optional for some endpoints)",
+                        placeholder = stringResource(R.string.settings_api_key_optional_for_some_endpoints),
                     )
                     if (state.customBaseUrl.isBlank() || state.customModel.isBlank()) {
                         Spacer(Modifier.height(Spacing.x2))
                         Text(
-                            text = "Without a URL and model, Chronicle uses the Quiet parser.",
+                            text = stringResource(R.string.basic_without_endpoint),
                             style = Chron.type.meta,
                             color = Chron.palette.textTertiary,
                             modifier = Modifier.padding(start = 4.dp),
@@ -563,7 +656,7 @@ private fun CustomModelField(current: String, onCommit: (String) -> Unit) {
             val candidate = it.trim()
             if (candidate.matches(MODEL_ID_REGEX)) onCommit(candidate)
         },
-        placeholder = "Custom model id (vendor/model:tag)",
+        placeholder = stringResource(R.string.settings_custom_model_id_vendor_model_tag),
         singleLine = true,
     )
     Spacer(Modifier.height(Spacing.x2))

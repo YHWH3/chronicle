@@ -31,11 +31,18 @@ enum class ModelKind(
     LOCAL_LLM(
         "On-device language model · bring your own",
         nominalBytes = -1L,
-    ),
+    );
+
+    val packId: String get() = when (this) {
+        PARAKEET_STT -> SmartModels.PARAKEET_PACK
+        LOCAL_LLM -> SmartModels.CUSTOM_PACK
+    }
 }
 
 sealed interface ModelState {
     data object NotInstalled : ModelState
+    /** Cancellable connection setup, before headers/progress are available. */
+    data object Connecting : ModelState
 
     /**
      * [progress] is -1 when the server won't report a total size;
@@ -67,17 +74,39 @@ class ModelStore(
     constructor(context: Context) : this(File(context.filesDir, "models"))
 
     /** The pack's final directory name (also the base for .part/.extracting siblings). */
-    fun dirName(kind: ModelKind): String = kind.name.lowercase()
+    fun dirName(kind: ModelKind): String = dirName(kind.packId)
+    fun dirName(packId: String): String {
+        require(packId in packIds) { "Unknown model pack" }
+        // Keep the existing Parakeet install path unchanged.
+        return if (packId == SmartModels.PARAKEET_PACK) "parakeet_stt" else packId
+    }
+    val packIds: List<String> get() = listOf(SmartModels.PARAKEET_PACK, SmartModels.CUSTOM_PACK) +
+        SmartModels.all.map { it.packId }
 
-    fun dir(kind: ModelKind): File = File(root, dirName(kind))
+    fun dir(kind: ModelKind): File = dir(kind.packId)
+    fun dir(packId: String): File = File(root, dirName(packId))
 
     /** The pack dir when it carries the install marker, else null. */
     fun installedDir(kind: ModelKind): File? =
-        dir(kind).takeIf { File(it, MARKER).exists() }
+        installedDir(kind.packId)
+
+    fun installedDir(packId: String): File? = dir(packId).takeIf { File(it, MARKER).exists() }
 
     /** The installed bundle file for the local LLM (.task or .litertlm), if present. */
-    fun localLlmFile(): File? = installedDir(ModelKind.LOCAL_LLM)
+    fun localLlmFile(packId: String = SmartModels.CUSTOM_PACK): File? = installedDir(packId)
         ?.let { dir -> dir.walkTopDown().firstOrNull { f -> f.isFile && isLlmBundle(f) } }
+
+    /** One-time relocation of legacy custom packs, including resumable transfers. */
+    internal fun migrateCustomPack() {
+        File(root, "llm").mkdirs()
+        for (suffix in listOf("", ".part", ".extracting")) {
+            val legacy = File(root, "local_llm" + suffix)
+            val target = File(root, SmartModels.CUSTOM_PACK + suffix)
+            if (legacy.exists() && !target.exists()) {
+                check(legacy.renameTo(target)) { "Could not migrate custom model" }
+            }
+        }
+    }
 
     internal fun markerFile(dir: File) = File(dir, MARKER)
 

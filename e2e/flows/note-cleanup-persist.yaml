@@ -1,0 +1,15 @@
+appId: com.chronicle.app
+---
+- waitForAnimationToEnd
+- tapOn: '^Journal$'
+- tapOn: 'I should call Zora \.  I should pay theatre fees \.'
+- scrollUntilVisible:
+    element: '^Clean up$'
+    timeout: 120000
+- tapOn: '^Clean up$'
+- assertVisible: '^Review cleanup$'
+- takeScreenshot: note-cleanup-final-preview
+- tapOn: '^Apply cleanup$'
+- assertVisible: 'I should call Zora\. I should pay theatre fees\.'
+- assertVisible: '^Undo cleanup$'
+- takeScreenshot: note-cleanup-before-relaunch

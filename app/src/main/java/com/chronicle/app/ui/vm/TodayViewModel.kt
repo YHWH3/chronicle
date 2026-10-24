@@ -277,6 +277,71 @@ class TodayViewModel(
         )
     }
 
+    fun updateKeptTask(taskId: Long, title: String, remindAt: Long?) {
+        if (taskId < 0) {
+            val kept = _state.value.kept ?: return
+            _state.value = _state.value.copy(kept = kept.copy(intentions = kept.intentions.map {
+                if (it.taskId == taskId) it.copy(title = title, remindAt = remindAt?.asLocalDateTime()) else it
+            }))
+            return
+        }
+        viewModelScope.launch {
+            try {
+                taskRepository.updateDetails(taskId, title, remindAt)
+                reminders.cancelTask(taskId)
+                reminders.cancelNotification(taskId)
+                if (remindAt != null && remindAt > System.currentTimeMillis()) {
+                    reminders.scheduleTask(taskId, title, remindAt)
+                }
+                val kept = _state.value.kept ?: return@launch
+                _state.value = _state.value.copy(kept = kept.copy(
+                    intentions = kept.intentions.map {
+                        if (it.taskId == taskId) it.copy(
+                            title = title, remindAt = remindAt?.asLocalDateTime(),
+                        ) else it
+                    },
+                ))
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                uiMessages.send(UiMessage.SaveFailed)
+            }
+        }
+    }
+
+    private val acceptingSuggestions = mutableSetOf<Long>()
+
+    fun acceptSuggestion(taskId: Long) {
+        val suggestion = _state.value.kept?.intentions?.find { it.taskId == taskId } ?: return
+        if (!suggestion.suggested) return
+        if (!acceptingSuggestions.add(taskId)) return
+        viewModelScope.launch {
+            try {
+                val kept = _state.value.kept ?: return@launch
+                val ms = suggestion.remindAt?.toEpochMs()
+                val id = taskRepository.add(suggestion.title, ms, kept.entryId)
+                var scheduled = 0
+                if (ms != null && ms > System.currentTimeMillis()) {
+                    reminders.scheduleTask(id, suggestion.title, ms)
+                    scheduled = 1
+                }
+                val current = _state.value.kept ?: return@launch
+                _state.value = _state.value.copy(kept = current.copy(
+                    reminders = current.reminders + scheduled,
+                    intentions = current.intentions.map {
+                        if (it.taskId == taskId) it.copy(taskId = id, suggested = false) else it
+                    },
+                ))
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                uiMessages.send(UiMessage.SaveFailed)
+            } finally {
+                acceptingSuggestions.remove(taskId)
+            }
+        }
+    }
+
     fun dismissKept() {
         _state.value = _state.value.copy(kept = null)
     }
@@ -295,6 +360,7 @@ class TodayViewModel(
                 ),
             )
         }
+        if (taskId < 0) return
         viewModelScope.launch {
             try {
                 reminders.cancelTask(taskId)
@@ -489,10 +555,21 @@ class TodayViewModel(
             null
         }
         val engineLabel = exec?.actualLabel ?: DeterministicMind.label
+        try {
+            journalRepository.saveEngineLabel(entryId, engineLabel)
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (_: Throwable) {
+            // Attribution must never prevent to-dos from being saved.
+        }
         var scheduled = 0
         var dropped = 0
         val intentions = mutableListOf<KeptIntention>()
         for (task in exec?.result?.tasks.orEmpty()) {
+            if (task.suggested) {
+                intentions += KeptIntention(task.title, task.remindAt, -(intentions.size + 1L), true)
+                continue
+            }
             val remindMs = task.remindAt?.toEpochMs()
             val id = try {
                 taskRepository.add(task.title, remindMs, entryId)

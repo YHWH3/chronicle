@@ -29,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
@@ -188,6 +189,7 @@ internal fun ModelStatusRow(
                 Text(
                     text = when (state) {
                         is ModelState.NotInstalled -> "Not installed"
+                        ModelState.Connecting -> stringResource(R.string.connecting_model)
                         is ModelState.Downloading ->
                             if (state.progress >= 0f) {
                                 "Downloading ${(state.progress * 100).toInt()}%"
@@ -222,12 +224,6 @@ internal fun ModelStatusRow(
 fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (String) -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     SettingsPage(title = "Settings", onBack = onBack) {
-        Text(
-            text = "The quiet particulars.",
-            style = Chron.type.serifItalic,
-            color = Chron.palette.textSecondary,
-        )
-        Spacer(Modifier.height(Spacing.x8))
         SettingsGroup {
             SettingsRow(
                 icon = R.drawable.ic_contrast,
@@ -245,20 +241,24 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit, onOpen: (St
             Hairline()
             SettingsRow(
                 icon = R.drawable.ic_mic,
-                title = "The Ear",
+                title = stringResource(R.string.voice_to_text),
                 summary = earSummary(state),
                 onClick = { onOpen(Routes.SETTINGS_EAR) },
             )
             Hairline()
             SettingsRow(
                 icon = R.drawable.ic_sparkle,
-                title = "The Mind",
+                title = stringResource(R.string.smart_todos),
                 summary = state.effectiveMindLabel.ifBlank { "Quiet parser" },
                 onClick = { onOpen(Routes.SETTINGS_MIND) },
             )
         }
         Spacer(Modifier.height(Spacing.x4))
         SettingsGroup {
+            SettingsRow(icon = R.drawable.ic_gear, title = stringResource(R.string.advanced),
+                summary = stringResource(R.string.advanced_summary),
+                onClick = { onOpen(Routes.SETTINGS_ADVANCED) })
+            Hairline()
             SettingsRow(
                 icon = R.drawable.ic_lock,
                 title = "Privacy",
@@ -295,7 +295,7 @@ internal fun earSummary(state: SettingsUiState): String = when (state.sttEngine)
     SttEngine.SYSTEM ->
         if (state.systemSttAvailable) "Built into Android" else "Not available on this device"
     SttEngine.PARAKEET ->
-        if (state.models[ModelKind.PARAKEET_STT] is ModelState.Installed) {
+        if (state.models[ModelKind.PARAKEET_STT.packId] is ModelState.Installed) {
             "Parakeet · on this phone"
         } else {
             "Parakeet · using Android's recogniser"

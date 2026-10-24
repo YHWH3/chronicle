@@ -1,0 +1,23 @@
+appId: com.chronicle.app
+---
+# Run after layout on chronicle_small with font_scale 1.3 / three-button nav.
+- waitForAnimationToEnd
+- tapOn: '^Write$'
+- tapOn: 'Type your note…'
+- inputText: 'second note'
+- tapOn: '^Keep$'
+- assertVisible: '^Saved$'
+- tapOn: 'New note'
+- tapOn: 'Type your note…'
+- inputText: 'third note'
+- tapOn: '^Keep$'
+- assertVisible: '^Saved$'
+- tapOn: 'New note'
+- tapOn: '^Speak$'
+- assertVisible: 'Earlier today'
+- assertVisible: '^Record$'
+- takeScreenshot: today-dense-1.3
+- tapOn: '^Record$'
+- assertVisible: 'Recording…'
+- takeScreenshot: recording-dense-1.3
+- tapOn: '^Discard$'

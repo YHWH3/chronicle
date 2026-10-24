@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.isImeVisible
@@ -76,6 +78,7 @@ import com.chronicle.app.ui.screens.JournalScreen
 import com.chronicle.app.ui.screens.SettingsAboutPage
 import com.chronicle.app.ui.screens.SettingsAppearancePage
 import com.chronicle.app.ui.screens.SettingsEarPage
+import com.chronicle.app.ui.screens.SettingsAdvancedPage
 import com.chronicle.app.ui.screens.SettingsMindPage
 import com.chronicle.app.ui.screens.SettingsModelPage
 import com.chronicle.app.ui.screens.SettingsNudgePage
@@ -111,6 +114,8 @@ object Routes {
     const val SETTINGS_MODEL = "settings/model/{kind}"
     const val SETTINGS_PRIVACY = "settings/privacy"
     const val SETTINGS_ABOUT = "settings/about"
+    const val SETTINGS_ADVANCED = "settings/advanced"
+    const val SETTINGS_SMART_TEST = "settings/advanced/smart-test"
     /** Keyed by the chapter's week-start Monday — stable across renumbering. */
     const val CHAPTER = "chapter/{weekStart}"
     /**
@@ -123,14 +128,14 @@ object Routes {
     fun settingsModel(kind: com.chronicle.app.mind.ModelKind) = "settings/model/${kind.name}"
 }
 
-private val DESTINATIONS = listOf(
+private fun destinations(context: Context) = listOf(
     NavItem(Routes.TODAY, R.drawable.ic_pen, "Today"),
     NavItem(Routes.JOURNAL, R.drawable.ic_book, "Journal"),
     NavItem(Routes.STORY, R.drawable.ic_bookmark, "Story"),
-    NavItem(Routes.TASKS, R.drawable.ic_check_circle, "Intentions"),
+    NavItem(Routes.TASKS, R.drawable.ic_check_circle, context.getString(R.string.todos)),
 )
 
-private val TAB_ROUTES = DESTINATIONS.map { it.route }
+private val TAB_ROUTES = listOf(Routes.TODAY, Routes.JOURNAL, Routes.STORY, Routes.TASKS)
 private fun androidx.navigation.NavDestination.isTab() = route in TAB_ROUTES
 
 private fun sceneForRoute(route: String?): SceneKey = when (route) {
@@ -144,6 +149,7 @@ private fun sceneForRoute(route: String?): SceneKey = when (route) {
 @Composable
 fun ChronicleRoot(container: AppContainer) {
     val navController = rememberNavController()
+    var openEntryId by remember { mutableStateOf<Long?>(null) }
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
     val onTabRoute = currentRoute in TAB_ROUTES
@@ -180,7 +186,9 @@ fun ChronicleRoot(container: AppContainer) {
         SceneEffect(sceneForRoute(currentRoute))
 
         Box(Modifier.fillMaxSize()) {
-            CompositionLocalProvider(LocalBottomBarPadding provides 96.dp) {
+            val bottomBar = 64.dp + 12.dp +
+                WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 8.dp
+            CompositionLocalProvider(LocalBottomBarPadding provides bottomBar) {
                 NavHost(
                     navController = navController,
                     startDestination = Routes.TODAY,
@@ -230,6 +238,12 @@ fun ChronicleRoot(container: AppContainer) {
                         })
                         TodayScreen(
                             vm,
+                            smartSetup = container.smartSetup,
+                            onOpenNote = { id ->
+                                openEntryId = id
+                                navController.navigateToTab(Routes.JOURNAL)
+                            },
+                            onOtherModels = { navController.navigate(Routes.SETTINGS_MIND) },
                             onOpenSettings = { navController.navigate(Routes.SETTINGS_GRAPH) },
                             onOpenJournal = { navController.navigateToTab(Routes.JOURNAL) },
                         )
@@ -242,10 +256,13 @@ fun ChronicleRoot(container: AppContainer) {
                                 container.parakeetTranscriber,
                                 container.uiMessages,
                                 container.taskRepository,
+                                mind = container.mindRepository,
+                                reminders = container.reminderGateway,
                             )
                         })
                         JournalScreen(
                             vm,
+                            openEntryId = openEntryId,
                             onOpenToday = { navController.navigateToTab(Routes.TODAY) },
                         )
                     }
@@ -295,6 +312,17 @@ fun ChronicleRoot(container: AppContainer) {
                                 onOpen = { navController.navigate(it) },
                             )
                         }
+                        if (com.chronicle.app.BuildConfig.DEBUG) {
+                            composable(Routes.SETTINGS_SMART_TEST) {
+                                com.chronicle.app.ui.screens.SmartSpikeScreen(
+                                    container, onBack = { navController.popBackStack() })
+                            }
+                        }
+                        composable(Routes.SETTINGS_ADVANCED) { entry ->
+                            val vm = settingsViewModel(navController, entry, container)
+                            SettingsAdvancedPage(vm, onBack = { navController.popBackStack() },
+                                onOpen = { navController.navigate(it) })
+                        }
                         composable(Routes.SETTINGS_MIND) { entry ->
                             val vm = settingsViewModel(navController, entry, container)
                             SettingsMindPage(
@@ -319,8 +347,9 @@ fun ChronicleRoot(container: AppContainer) {
                             val vm = settingsViewModel(navController, entry, container)
                             SettingsPrivacyPage(vm, onBack = { navController.popBackStack() })
                         }
-                        composable(Routes.SETTINGS_ABOUT) {
-                            SettingsAboutPage(onBack = { navController.popBackStack() })
+                        composable(Routes.SETTINGS_ABOUT) { entry ->
+                            SettingsAboutPage(onBack = { navController.popBackStack() },
+                                viewModel = settingsViewModel(navController, entry, container))
                         }
                     }
                     composable(
@@ -349,7 +378,7 @@ fun ChronicleRoot(container: AppContainer) {
             }
 
             FloatingNavBar(
-                items = DESTINATIONS,
+                items = destinations(context),
                 currentRoute = currentRoute,
                 visible = onTabRoute && !imeVisible,
                 onSelect = { item ->
@@ -361,7 +390,7 @@ fun ChronicleRoot(container: AppContainer) {
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
 
-            UiMessageHost(container.uiMessages)
+            UiMessageHost(container.uiMessages, bottomBar)
         }
     }
 }
@@ -373,7 +402,7 @@ fun ChronicleRoot(container: AppContainer) {
  * current one and restarts the countdown.
  */
 @Composable
-private fun BoxScope.UiMessageHost(bus: UiMessageBus) {
+private fun BoxScope.UiMessageHost(bus: UiMessageBus, bottomPadding: androidx.compose.ui.unit.Dp) {
     val context = LocalContext.current
     var current by remember { mutableStateOf<UiMessage?>(null) }
     // Keep the last message so the exit fade doesn't render an empty pill.
@@ -410,7 +439,7 @@ private fun BoxScope.UiMessageHost(bus: UiMessageBus) {
         modifier = Modifier
             .align(Alignment.BottomCenter)
             .padding(horizontal = Spacing.screenMargin)
-            .padding(bottom = LocalBottomBarPadding.current + 12.dp),
+            .padding(bottom = bottomPadding + 12.dp),
         enter = fadeIn(tween(ChronicleMotion.MICRO)) +
             slideInVertically(tween(ChronicleMotion.MICRO)) { it / 4 },
         exit = fadeOut(tween(ChronicleMotion.MICRO)),
@@ -490,6 +519,8 @@ private fun settingsViewModel(
                 container.mindRepository,
                 container.transcriber,
                 container.reminderGateway,
+                container.smartSetup,
+                container.hfAuth,
             )
         },
     )

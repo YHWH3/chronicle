@@ -38,7 +38,7 @@ class ModelInstallManagerTest {
     private lateinit var store: ModelStore
     private var clock = System.currentTimeMillis()
     private var freeSpace = Long.MAX_VALUE
-    private var sha256For: (ModelKind) -> String? = { it.expectedSha256 }
+    private var sha256For: (String) -> String? = { null }
 
     @After
     fun tearDown() = scope.cancel()
@@ -51,7 +51,7 @@ class ModelInstallManagerTest {
     ) : Fetcher {
         val rangeRequests = mutableListOf<Long>()
 
-        override fun open(url: String, rangeStart: Long): FetchResponse {
+        override fun open(url: String, rangeStart: Long, headers: Map<String, String>): FetchResponse {
             rangeRequests += rangeStart
             val body = when {
                 rangeStart > 0 && supportRange && rangeStart < data.size ->
@@ -96,7 +96,7 @@ class ModelInstallManagerTest {
         kind: ModelKind,
         pred: (ModelState) -> Boolean,
     ): ModelState = runBlocking {
-        withTimeout(10_000) { states.first { pred(it[kind]!!) } }[kind]!!
+        withTimeout(10_000) { states.first { pred(it[kind.packId]!!) } }[kind.packId]!!
     }
 
     private fun tarGz(entries: List<Pair<String, ByteArray>>): ByteArray {
@@ -306,7 +306,7 @@ class ModelInstallManagerTest {
     fun `declared download size that never arrives fails as truncated`() {
         // Server declares more than it sends — the copy loop must not pretend success.
         fetcher = object : Fetcher {
-            override fun open(url: String, rangeStart: Long) = FetchResponse(
+            override fun open(url: String, rangeStart: Long, headers: Map<String, String>) = FetchResponse(
                 code = 200,
                 totalBytes = 200_000,
                 stream = ByteArrayInputStream(ByteArray(30_000)),
@@ -406,22 +406,55 @@ class ModelInstallManagerTest {
     }
 
     @Test
+    fun `connection setup is cancellable before response headers arrive`() {
+        val gate = java.util.concurrent.Semaphore(0)
+        val started = java.util.concurrent.CountDownLatch(1)
+        fetcher = Fetcher { _, _, _ ->
+            started.countDown()
+            gate.acquire()
+            FetchResponse(200, 1, ByteArrayInputStream(byteArrayOf(1)), abort = {})
+        }
+        val mgr = newManager()
+        mgr.install(ModelKind.LOCAL_LLM, "https://x.test/model.task")
+        try {
+            assertEquals(ModelState.Connecting, mgr.waitFor(ModelKind.LOCAL_LLM) { it == ModelState.Connecting })
+            assertTrue(partFile(mgr, ModelKind.LOCAL_LLM).exists())
+            assertTrue(started.await(2, java.util.concurrent.TimeUnit.SECONDS))
+            mgr.cancel(ModelKind.LOCAL_LLM)
+        } finally { gate.release() }
+        assertEquals(ModelState.NotInstalled, mgr.waitFor(ModelKind.LOCAL_LLM) { it == ModelState.NotInstalled })
+        assertTrue(partFile(mgr, ModelKind.LOCAL_LLM).exists())
+    }
+
+    @Test
+    fun `retry clears failure without discarding partial bytes`() {
+        fetcher = Fetcher { _, _, _ -> FetchResponse(200, 100, ByteArrayInputStream(byteArrayOf(1)), abort = {}) }
+        val mgr = newManager()
+        mgr.install(ModelKind.LOCAL_LLM, "https://x.test/model.task")
+        mgr.waitFor(ModelKind.LOCAL_LLM) { it is ModelState.Failed }
+        assertEquals(1L, partFile(mgr, ModelKind.LOCAL_LLM).length())
+        mgr.clearFailure(ModelKind.LOCAL_LLM.packId)
+        assertEquals(ModelState.NotInstalled, mgr.states.value[ModelKind.LOCAL_LLM.packId])
+        assertEquals(1L, partFile(mgr, ModelKind.LOCAL_LLM).length())
+    }
+
+    @Test
     fun `delete removes pack part and staging and fires the listener`() {
         val bytes = ByteArray(60_000) { it.toByte() }
         fetcher = FakeFetcher(bytes)
         val mgr = newManager()
-        var heard: Pair<ModelKind, Boolean>? = null
+        var heard: Pair<String, Boolean>? = null
         mgr.addModelChangeListener { k, installed -> heard = k to installed }
 
         mgr.install(ModelKind.LOCAL_LLM, "https://x.test/llama.task")
         mgr.waitFor(ModelKind.LOCAL_LLM) { it is ModelState.Installed }
-        assertEquals(ModelKind.LOCAL_LLM to true, heard)
+        assertEquals(ModelKind.LOCAL_LLM.packId to true, heard)
 
         runBlocking { mgr.delete(ModelKind.LOCAL_LLM) }
-        assertEquals(ModelKind.LOCAL_LLM to false, heard)
+        assertEquals(ModelKind.LOCAL_LLM.packId to false, heard)
         assertFalse(store.dir(ModelKind.LOCAL_LLM).exists())
         assertFalse(partFile(mgr, ModelKind.LOCAL_LLM).exists())
-        assertEquals(ModelState.NotInstalled, mgr.states.value[ModelKind.LOCAL_LLM])
+        assertEquals(ModelState.NotInstalled, mgr.states.value[ModelKind.LOCAL_LLM.packId])
     }
 
     @Test

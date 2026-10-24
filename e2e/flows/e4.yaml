@@ -15,5 +15,5 @@ appId: com.chronicle.app
 - assertVisible: 'While using the app'
 - takeScreenshot: e4-permission-dialog
 - tapOn: 'Don.t allow'
-- assertVisible: 'Tap to speak your day'
+- assertVisible: 'Tap to talk'
 - takeScreenshot: e4-after-deny

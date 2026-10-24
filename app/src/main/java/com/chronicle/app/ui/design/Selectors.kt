@@ -30,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
@@ -203,6 +204,7 @@ fun OptionCard(
     modifier: Modifier = Modifier,
     meta: String? = null,
     trailing: (@Composable () -> Unit)? = null,
+    enabled: Boolean = true,
 ) {
     val p = Chron.palette
     GlassSurface(
@@ -210,8 +212,10 @@ fun OptionCard(
         shape = RoundedCornerShape(Radius.md),
         modifier = modifier
             .fillMaxWidth()
+            .alpha(if (enabled) 1f else 0.5f)
             .selectable(
                 selected = selected,
+                enabled = enabled,
                 interactionSource = remember { MutableInteractionSource() },
                 indication = ripple(color = p.textPrimary),
                 role = Role.RadioButton,

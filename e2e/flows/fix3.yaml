@@ -3,5 +3,5 @@ appId: com.chronicle.app
 - waitForAnimationToEnd
 - tapOn: '^Today$'
 - tapOn: 'Settings'
-- assertVisible: 'The quiet particulars\.'
+- assertNotVisible: 'The quiet particulars\.'
 - takeScreenshot: fix3-settings

@@ -22,6 +22,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -35,7 +36,9 @@ import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
  * read fail fast — for HttpURLConnection that is disconnect().
  */
 internal fun interface Fetcher {
-    fun open(url: String, rangeStart: Long): FetchResponse
+    fun open(url: String, rangeStart: Long, headers: Map<String, String>): FetchResponse
+    /** May be called while open() is still waiting for headers. */
+    fun abort() {}
 }
 
 /** Response metadata plus the body stream. [close] releases the connection. */
@@ -55,41 +58,52 @@ internal class FetchResponse(
 }
 
 /** Production [Fetcher] — a plain HttpURLConnection with a Range header. */
-internal class HttpFetcher : Fetcher {
-
-    @Volatile
-    private var conn: HttpURLConnection? = null
-
-    override fun open(url: String, rangeStart: Long): FetchResponse {
-        val c = (URL(url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = CONNECT_TIMEOUT_MS
-            readTimeout = READ_TIMEOUT_MS
-            instanceFollowRedirects = true
-            if (rangeStart > 0) setRequestProperty("Range", "bytes=$rangeStart-")
-        }
-        conn = c
-        val code = c.responseCode
-        val total = when (code) {
-            206 -> contentRangeTotal(c.getHeaderField("Content-Range"))
-                ?: (c.contentLengthLong.takeIf { it >= 0 }?.plus(rangeStart) ?: -1L)
-            416 -> contentRangeTotal(c.getHeaderField("Content-Range")) ?: rangeStart
-            else -> c.contentLengthLong
-        }
-        return FetchResponse(
-            code = code,
-            totalBytes = total,
-            stream = if (code == 416) null else runCatching { c.inputStream }.getOrNull(),
-            abort = { c.disconnect() },
-        )
+internal class HttpFetcher(
+    private val connection: (URL) -> HttpURLConnection = { it.openConnection() as HttpURLConnection },
+) : Fetcher {
+    @Volatile private var activeConnection: HttpURLConnection? = null
+    @Volatile private var aborted = false
+    override fun abort() {
+        aborted = true
+        activeConnection?.disconnect()
     }
-
-    private companion object {
-        const val CONNECT_TIMEOUT_MS = 20_000
-        const val READ_TIMEOUT_MS = 30_000
-
-        /** Parses "bytes 100-999/5000" or "bytes *&#47;5000" → 5000. */
-        fun contentRangeTotal(header: String?): Long? =
-            header?.substringAfterLast('/')?.toLongOrNull()
+    override fun open(url: String, rangeStart: Long, headers: Map<String, String>): FetchResponse {
+        var target = URL(url)
+        repeat(6) { hop ->
+            if (aborted) throw IOException("Download cancelled")
+            require(target.protocol == "https") { "Model downloads require HTTPS" }
+            val c = connection(target).apply {
+                connectTimeout = 20_000
+                readTimeout = 30_000
+                instanceFollowRedirects = false
+                headers.forEach { (name, value) ->
+                    if (!name.equals("Authorization", true) || target.host.equals("huggingface.co", true)) {
+                        setRequestProperty(name, value)
+                    }
+                }
+                if (rangeStart > 0) setRequestProperty("Range", "bytes=$rangeStart-")
+            }
+            activeConnection = c
+            if (aborted) { c.disconnect(); throw IOException("Download cancelled") }
+            val code = c.responseCode
+            if (code in listOf(301, 302, 303, 307, 308)) {
+                val location = c.getHeaderField("Location")
+                c.disconnect()
+                if (hop == 5 || location.isNullOrBlank()) error("Too many or invalid download redirects")
+                target = URL(target, location)
+            } else {
+                val total = when (code) {
+                    206 -> c.getHeaderField("Content-Range")?.substringAfterLast('/')?.toLongOrNull()
+                        ?: (c.contentLengthLong.takeIf { it >= 0 }?.plus(rangeStart) ?: -1L)
+                    416 -> c.getHeaderField("Content-Range")?.substringAfterLast('/')?.toLongOrNull() ?: rangeStart
+                    else -> c.contentLengthLong
+                }
+                return FetchResponse(code, total,
+                    if (code == 416) null else runCatching { c.inputStream }.getOrNull(),
+                    abort = { c.disconnect() })
+            }
+        }
+        error("Too many download redirects")
     }
 }
 
@@ -99,9 +113,9 @@ internal class HttpFetcher : Fetcher {
  * — install() enqueues and returns; progress flows through [states].
  *
  * Layout inside filesDir/models/:
- *   <kind>.part        partial download — kept on cancel/failure for resume
- *   <kind>.extracting/ unpack staging — validated before it becomes real
- *   <kind>/            the live pack, marked by a `.installed` file
+ *   <packId>.part        partial download — kept on cancel/failure for resume
+ *   <packId>.extracting/ unpack staging — validated before it becomes real
+ *   <packId>/            the live pack, marked by a `.installed` file
  *
  * A `.part` younger than [PART_MAX_AGE_MS] resumes via HTTP Range (206 →
  * append, 200 → restart, 416 → already complete). Extracted entries are
@@ -116,47 +130,57 @@ class ModelInstallManager internal constructor(
     private val freeSpaceBytes: (File) -> Long = { StatFs(it.path).availableBytes },
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val warn: (String) -> Unit = { Log.w(TAG, it) },
-    /** Expected digest lookup — the kind's spec by default; tests pin their own. */
-    private val sha256For: (ModelKind) -> String? = { it.expectedSha256 },
+    /** Expected digest lookup — the packId's spec by default; tests pin their own. */
+    private val sha256For: (String) -> String? = { SmartModels.forPack(it)?.sha256 },
 ) {
 
     constructor(context: Context, scope: CoroutineScope) :
         this(ModelStore(context), scope)
 
+    init { store.migrateCustomPack() }
+
     private val _states = MutableStateFlow(
-        ModelKind.entries.associateWith {
+        store.packIds.associateWith {
             if (store.installedDir(it) != null) ModelState.Installed else ModelState.NotInstalled
         },
     )
-    val states: StateFlow<Map<ModelKind, ModelState>> = _states
+    val states: StateFlow<Map<String, ModelState>> = _states
 
-    private val jobs = ConcurrentHashMap<ModelKind, Job>()
-    private val liveCalls = ConcurrentHashMap<ModelKind, FetchResponse>()
+    private val jobs = ConcurrentHashMap<String, Job>()
+    private val liveCalls = ConcurrentHashMap<String, FetchResponse>()
+    private val openingCalls = ConcurrentHashMap<String, Fetcher>()
 
     /**
      * Fired after a pack becomes installed or is deleted — the listener
      * releases whatever native engine was holding the files.
      */
-    private val changeListeners = CopyOnWriteArrayList<(ModelKind, Boolean) -> Unit>()
+    private val changeListeners = CopyOnWriteArrayList<(String, Boolean) -> Unit>()
 
-    fun addModelChangeListener(listener: (kind: ModelKind, installed: Boolean) -> Unit) {
+    fun addModelChangeListener(listener: (packId: String, installed: Boolean) -> Unit) {
         changeListeners += listener
     }
 
+    // Source-compatible adapters for Parakeet and the Advanced custom-model page.
+    fun dir(kind: ModelKind) = dir(kind.packId)
+    fun installedDir(kind: ModelKind) = installedDir(kind.packId)
+    fun install(kind: ModelKind, url: String?) = install(kind.packId, url)
+    fun cancel(kind: ModelKind) = cancel(kind.packId)
+    suspend fun delete(kind: ModelKind) = delete(kind.packId)
+
     // ————— Disk surface (delegated to the store) —————
 
-    fun dir(kind: ModelKind): File = store.dir(kind)
-    fun installedDir(kind: ModelKind): File? = store.installedDir(kind)
-    fun localLlmFile(): File? = store.localLlmFile()
+    fun dir(packId: String): File = store.dir(packId)
+    fun installedDir(packId: String): File? = store.installedDir(packId)
+    fun localLlmFile(packId: String = SmartModels.CUSTOM_PACK): File? = store.localLlmFile(packId)
 
-    private fun partFile(kind: ModelKind) =
-        File(store.root, store.dirName(kind) + PART_SUFFIX)
+    private fun partFile(packId: String) =
+        File(store.root, store.dirName(packId) + PART_SUFFIX)
 
-    private fun extractingDir(kind: ModelKind) =
-        File(store.root, store.dirName(kind) + EXTRACTING_SUFFIX)
+    private fun extractingDir(packId: String) =
+        File(store.root, store.dirName(packId) + EXTRACTING_SUFFIX)
 
-    private fun set(kind: ModelKind, s: ModelState) {
-        _states.value = _states.value + (kind to s)
+    private fun set(packId: String, s: ModelState) {
+        _states.update { it + (packId to s) }
     }
 
     /**
@@ -164,20 +188,41 @@ class ModelInstallManager internal constructor(
      * callers never own the transfer, so navigating away cannot kill it.
      * A `.part` file left by an earlier attempt resumes automatically.
      */
-    fun install(kind: ModelKind, url: String?) {
+    @Synchronized
+    fun install(packId: String, url: String?) {
+        store.dirName(packId) // Validate before state or job maps accept the key.
         val clean = url?.trim().orEmpty()
         if (clean.isEmpty()) {
-            set(kind, ModelState.Failed("No download URL — paste a model link first."))
+            set(packId, ModelState.Failed("No download URL — paste a model link first."))
             return
         }
-        if (jobs[kind]?.isActive == true) return
-        jobs[kind] = scope.launch { runInstall(kind, clean) }
+        if (jobs[packId]?.isActive == true) return
+        jobs[packId] = scope.launch { runInstall(packId, clean, emptyMap()) }
+    }
+
+    suspend fun awaitTransferStopped(packId: String) {
+        jobs[packId]?.join()
+        kotlinx.coroutines.withTimeout(31_000) {
+            while (liveCalls.containsKey(packId)) kotlinx.coroutines.delay(50)
+        }
+    }
+
+    fun discardPartial(packId: String) {
+        partFile(packId).delete()
+        set(packId, if (installedDir(packId) == null) ModelState.NotInstalled else ModelState.Installed)
+    }
+
+    /** Retry resets presentation without discarding resumable bytes. */
+    fun clearFailure(packId: String) {
+        if (_states.value[packId] is ModelState.Failed)
+            set(packId, if (installedDir(packId) == null) ModelState.NotInstalled else ModelState.Installed)
     }
 
     /** Stops an in-flight transfer within ~1s; the `.part` stays for resume. */
-    fun cancel(kind: ModelKind) {
-        jobs[kind]?.cancel()
-        liveCalls[kind]?.abort()
+    fun cancel(packId: String) {
+        jobs[packId]?.cancel()
+        openingCalls[packId]?.abort()
+        liveCalls[packId]?.abort()
     }
 
     /**
@@ -185,34 +230,64 @@ class ModelInstallManager internal constructor(
      * notifies listeners so any loaded engine is released before the files
      * disappear. Suspends only to join the cancelled job.
      */
-    suspend fun delete(kind: ModelKind) {
-        jobs[kind]?.cancel()
-        liveCalls[kind]?.abort()
-        jobs[kind]?.join()
-        val had = store.installedDir(kind) != null
-        dir(kind).deleteRecursively()
-        partFile(kind).delete()
-        extractingDir(kind).deleteRecursively()
-        set(kind, ModelState.NotInstalled)
-        changeListeners.forEach { it(kind, false) }
-        if (had) warn("${store.dirName(kind)} deleted")
+    suspend fun delete(packId: String) {
+        cancel(packId)
+        jobs[packId]?.join()
+        awaitTransferStopped(packId)
+        val had = store.installedDir(packId) != null
+        changeListeners.forEach { it(packId, false) }
+        dir(packId).deleteRecursively()
+        partFile(packId).delete()
+        extractingDir(packId).deleteRecursively()
+        set(packId, ModelState.NotInstalled)
+        if (had) warn("${store.dirName(packId)} deleted")
     }
 
-    private suspend fun runInstall(kind: ModelKind, url: String) {
-        val packDir = dir(kind)
-        val part = partFile(kind)
-        val extracting = extractingDir(kind)
+    suspend fun installNow(packId: String, url: String, headers: Map<String, String> = emptyMap()) {
+        kotlinx.coroutines.suspendCancellableCoroutine<Unit> { continuation ->
+            val task = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+                try {
+                    runInstall(packId, url, headers)
+                    if (continuation.isActive) continuation.resumeWith(Result.success(Unit))
+                } catch (t: Throwable) {
+                    if (continuation.isActive) continuation.resumeWith(Result.failure(t))
+                }
+            }
+            synchronized(this) {
+                if (jobs[packId]?.isActive == true) {
+                    task.cancel()
+                    continuation.resumeWith(Result.failure(IllegalStateException("Transfer already active")))
+                    return@suspendCancellableCoroutine
+                }
+                jobs[packId] = task
+            }
+            continuation.invokeOnCancellation { cancel(packId) }
+            task.start()
+        }
+    }
+
+    private suspend fun runInstall(packId: String, url: String, headers: Map<String, String>) {
+        store.dirName(packId)
+        val packDir = dir(packId)
+        val part = partFile(packId)
+        val extracting = extractingDir(packId)
+        packDir.parentFile?.mkdirs()
         store.root.mkdirs()
-        set(kind, ModelState.Downloading(0f, 0, -1))
         try {
+            // Connection setup can take seconds on a slow network. Expose
+            // Cancel immediately, backed by a real resumable file even before
+            // response headers arrive (so cancellation cannot race its creation).
+            part.parentFile?.mkdirs()
+            if (!part.exists()) check(part.createNewFile()) { "Could not create download file" }
+            set(packId, ModelState.Connecting)
             val fileName = url.substringBefore('?').substringAfterLast('/')
                 .ifBlank { "model.bin" }
-            val total = download(kind, url, part)
+            val total = download(packId, url, part, headers)
             coroutineContext.ensureActive()
 
             // A spec-pinned digest is verified on the downloaded bytes before
             // anything is unpacked.
-            sha256For(kind)?.let { expected ->
+            sha256For(packId)?.let { expected ->
                 val actual = sha256(part)
                 if (!actual.equals(expected, ignoreCase = true)) {
                     part.delete()
@@ -220,7 +295,7 @@ class ModelInstallManager internal constructor(
                 }
             }
 
-            set(kind, ModelState.Extracting)
+            set(packId, ModelState.Extracting)
             extracting.deleteRecursively()
             extracting.mkdirs()
             withContext(Dispatchers.IO) {
@@ -233,24 +308,23 @@ class ModelInstallManager internal constructor(
             }
             part.delete()
 
-            validate(kind, extracting, total)
+            validate(packId, extracting, total)
             packDir.deleteRecursively()
             check(extracting.renameTo(packDir)) { "couldn't move model into place" }
             store.writeMarker(packDir)
-            set(kind, ModelState.Installed)
-            changeListeners.forEach { it(kind, true) }
+            changeListeners.forEach { it(packId, true) }
+            set(packId, ModelState.Installed)
         } catch (c: CancellationException) {
             // Keep the .part — the next install() resumes from it.
-            set(kind, ModelState.NotInstalled)
+            set(packId, ModelState.NotInstalled)
             throw c
         } catch (t: Throwable) {
             if (!coroutineContext.isActive) {
-                set(kind, ModelState.NotInstalled)
+                set(packId, ModelState.NotInstalled)
                 throw CancellationException(t.message).apply { initCause(t) }
             }
             extracting.deleteRecursively()
-            set(kind, ModelState.Failed(t.message?.lineSequence()?.firstOrNull()
-                ?: "download failed"))
+            set(packId, ModelState.Failed(downloadFailure(t)))
         }
     }
 
@@ -259,12 +333,19 @@ class ModelInstallManager internal constructor(
      * it is fresh enough to trust. Returns the total byte count the server
      * reported (-1 when unknown).
      */
-    private suspend fun download(kind: ModelKind, url: String, part: File): Long =
+    private suspend fun download(packId: String, url: String, part: File, headers: Map<String, String>): Long =
         withContext(Dispatchers.IO) {
+            coroutineContext.ensureActive()
             var resumeAt = resumeOffset(part)
-            val call = newFetcher().open(url, resumeAt)
-            liveCalls[kind] = call
+            val fetcher = newFetcher()
+            openingCalls[packId] = fetcher
+            val call = try {
+                coroutineContext.ensureActive()
+                fetcher.open(url, resumeAt, headers)
+            } finally { openingCalls.remove(packId, fetcher) }
+            liveCalls[packId] = call
             try {
+                coroutineContext.ensureActive()
                 when {
                     call.code == 416 -> {
                         // Range unsatisfiable — the server is telling us the
@@ -283,6 +364,11 @@ class ModelInstallManager internal constructor(
                 if (total > 0) ensureSpace(total)
                 val stream = call.stream ?: throw IOException("empty response body")
                 FileOutputStream(part, append).use { out ->
+                    // Downloading means the resumable file actually exists. A
+                    // cancel racing connection setup must not report phantom progress.
+                    set(packId, ModelState.Downloading(
+                        if (total > 0) resumeAt.toFloat() / total else -1f, resumeAt, total,
+                    ))
                     stream.use { input ->
                         var done = resumeAt
                         val buf = ByteArray(COPY_BUFFER)
@@ -300,7 +386,7 @@ class ModelInstallManager internal constructor(
                             out.write(buf, 0, n)
                             done += n
                             set(
-                                kind,
+                                packId,
                                 ModelState.Downloading(
                                     progress = if (total > 0) {
                                         (done.toFloat() / total).coerceIn(0f, 1f)
@@ -317,7 +403,7 @@ class ModelInstallManager internal constructor(
                     }
                 }
             } finally {
-                liveCalls.remove(kind)
+                liveCalls.remove(packId)
                 call.close()
             }
         }
@@ -385,17 +471,17 @@ class ModelInstallManager internal constructor(
      * download's Content-Length (extracted bytes for a compressed archive are
      * larger than the archive, so a half-size floor stays lenient).
      */
-    private fun validate(kind: ModelKind, dir: File, expectedBytes: Long) {
+    private fun validate(packId: String, dir: File, expectedBytes: Long) {
         val files = dir.walkTopDown().filter { it.isFile }.toList()
-        when (kind) {
-            ModelKind.PARAKEET_STT -> {
+        when (packId) {
+            SmartModels.PARAKEET_PACK -> {
                 val missing = ParakeetTranscriber.REQUIRED_MODEL_FILES
                     .filter { req -> files.none { it.name == req } }
                 check(missing.isEmpty()) {
                     "incomplete pack — missing ${missing.joinToString()}"
                 }
             }
-            ModelKind.LOCAL_LLM -> {
+            else -> {
                 val model = files.firstOrNull { ModelStore.isLlmBundle(it) }
                 checkNotNull(model) { "no .task/.litertlm bundle in pack" }
                 if (expectedBytes > 0) {
@@ -424,6 +510,13 @@ class ModelInstallManager internal constructor(
         name.endsWith(".tar.bz2") || name.endsWith(".tar.gz") || name.endsWith(".tgz")
 
     private companion object {
+        /** Transport errors can include expiring signed CDN URLs. Strip them. */
+        fun downloadFailure(t: Throwable): String {
+            val message = t.message?.lineSequence()?.firstOrNull().orEmpty()
+                .replace(Regex("https?://[^\\s]+"), "[download URL]")
+                .replace(Regex("(?i)(Bearer|Authorization)[^,;]*"), "[credentials]")
+            return message.ifBlank { "download failed" }.take(160)
+        }
         const val TAG = "ModelInstall"
         const val COPY_BUFFER = 256 * 1024
         const val PART_SUFFIX = ".part"

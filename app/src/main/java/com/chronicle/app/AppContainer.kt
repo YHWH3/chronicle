@@ -38,7 +38,7 @@ class AppContainer(context: Context) {
         "chronicle.db",
     ).addMigrations(ChronicleDatabase.MIGRATION_1_2).build()
 
-    val journalRepository = JournalRepository(database.entryDao())
+    val journalRepository = JournalRepository(database.entryDao(), com.chronicle.app.data.NoteDetailsStore(appContext))
     val taskRepository = TaskRepository(database.taskDao())
 
     /**
@@ -68,6 +68,8 @@ class AppContainer(context: Context) {
 
     /** The model download/install owner — also answers "is the pack on disk". */
     val modelStore = ModelInstallManager(modelDisk, installScope)
+    val modelDownloads = com.chronicle.app.mind.ModelDownloads(appContext)
+    val hfAuth = com.chronicle.app.mind.HfAuthRepository(prefsRepository)
     val parakeetTranscriber = ParakeetTranscriber(appContext, modelDisk)
 
     /**
@@ -77,15 +79,19 @@ class AppContainer(context: Context) {
     val llmEngineHolder = LlmEngineHolder { path -> LocalLlmMind(appContext, path) }
     val mindRepository = MindRepository(prefsRepository, modelDisk, llmEngineHolder)
 
+    val smartSetup = com.chronicle.app.mind.SmartSetupController(
+        appContext, prefsRepository, journalRepository, modelStore, modelDownloads, mindRepository, appScope,
+    )
+
     init {
         // A pack coming or going invalidates whatever engine held its files.
         modelStore.addModelChangeListener { kind, installed ->
             when (kind) {
-                ModelKind.PARAKEET_STT -> {
+                com.chronicle.app.mind.SmartModels.PARAKEET_PACK -> {
                     parakeetTranscriber.invalidateAvailabilityCache()
                     if (!installed) parakeetTranscriber.release()
                 }
-                ModelKind.LOCAL_LLM -> if (!installed) llmEngineHolder.release()
+                else -> llmEngineHolder.releaseIfDirectory(modelStore.dir(kind).absolutePath)
             }
         }
     }

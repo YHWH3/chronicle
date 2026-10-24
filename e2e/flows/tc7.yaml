@@ -3,11 +3,11 @@ appId: com.chronicle.app
 - waitForAnimationToEnd
 # Gear icon desc is now "Settings"; Settings is a nav graph, no bottom bar.
 - tapOn: 'Settings'
-- assertVisible: 'The quiet particulars\.'
+- assertNotVisible: 'The quiet particulars\.'
 - assertVisible: 'Appearance'
 - assertVisible: 'Daily nudge'
-- assertVisible: 'The Ear'
-- assertVisible: 'The Mind'
+- assertVisible: 'Voice to text'
+- assertVisible: 'Advanced'
 - assertVisible: 'Privacy'
 - assertVisible: 'About'
 - tapOn: 'Appearance'

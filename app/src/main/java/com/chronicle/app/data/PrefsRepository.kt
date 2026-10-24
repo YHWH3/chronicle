@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -22,7 +23,8 @@ enum class ThemeMode { SYSTEM, PAPER, INK }
 /** How captured words are turned into tasks and reflections. */
 enum class MindBackend(val title: String) {
     /** Deterministic parser — nothing leaves the phone, nothing to download. */
-    QUIET_PARSER("Quiet parser"),
+    AUTO("Smart to-dos"),
+    QUIET_PARSER("Basic (built in)"),
     /** A MediaPipe .task bundle (e.g. Llama 3.2 3B) running on-device. */
     ON_DEVICE("On-device model"),
     /** OpenRouter — incl. free-tier models — with the user's own API key. */
@@ -42,7 +44,7 @@ data class ChroniclePrefs(
     val dailyNudgeEnabled: Boolean = false,
     /** Minutes after midnight for the daily writing nudge. */
     val dailyNudgeMinutes: Int = 20 * 60,
-    val mindBackend: MindBackend = MindBackend.QUIET_PARSER,
+    val mindBackend: MindBackend = MindBackend.AUTO,
     val openRouterKey: String = "",
     val openRouterModel: String = "meta-llama/llama-3.2-3b-instruct:free",
     val customBaseUrl: String = "",
@@ -52,6 +54,15 @@ data class ChroniclePrefs(
     /** Override download URLs — HF models are license-gated, so users paste their own. */
     val parakeetUrl: String = DEFAULT_PARAKEET_URL,
     val llmUrl: String = DEFAULT_LLM_URL,
+    val hfAccessToken: String = "",
+    val hfRefreshToken: String = "",
+    val hfExpiresAt: Long = 0L,
+    val hfOauthState: String = "",
+    val hfPkceVerifier: String = "",
+    val mindUserChosen: Boolean = false,
+    val allowMobileData: Boolean = false,
+    val smartOfferDismissedAt: Long = 0L,
+    val selectedSmartModelId: String = com.chronicle.app.mind.SmartModels.DEFAULT_ID,
 ) {
     companion object {
         const val DEFAULT_PARAKEET_URL =
@@ -89,6 +100,9 @@ interface PrefsStore : PrefsSource {
     suspend fun setOpenRouter(key: String, model: String)
     suspend fun setCustomEndpoint(baseUrl: String, model: String, key: String)
     suspend fun setSttEngine(engine: SttEngine)
+    suspend fun setSelectedSmartModel(id: String) { }
+    suspend fun setAllowMobileData(allow: Boolean) { }
+    suspend fun dismissSmartOffer(at: Long) { }
     suspend fun setModelUrls(parakeetUrl: String, llmUrl: String)
 }
 
@@ -113,6 +127,9 @@ class PrefsRepository(
     override val prefs: Flow<ChroniclePrefs> = context.dataStore.data.map { p ->
         val pendingSeal = mutableListOf<Pair<Preferences.Key<String>, String>>()
         val openRouterKey = unseal(p[KEY_OR_KEY], KEY_OR_KEY, pendingSeal)
+        val hfAccess = unseal(p[KEY_HF_ACCESS], KEY_HF_ACCESS, pendingSeal)
+        val hfRefresh = unseal(p[KEY_HF_REFRESH], KEY_HF_REFRESH, pendingSeal)
+        val hfVerifier = unseal(p[KEY_HF_VERIFIER], KEY_HF_VERIFIER, pendingSeal)
         val customKey = unseal(p[KEY_CUSTOM_KEY], KEY_CUSTOM_KEY, pendingSeal)
         queueSealWriteBack(pendingSeal)
         ChroniclePrefs(
@@ -120,8 +137,15 @@ class PrefsRepository(
                 ?: ThemeMode.SYSTEM,
             dailyNudgeEnabled = p[KEY_NUDGE_ENABLED] ?: false,
             dailyNudgeMinutes = p[KEY_NUDGE_MINUTES] ?: (20 * 60),
-            mindBackend = p[KEY_MIND]?.let { runCatching { MindBackend.valueOf(it) }.getOrNull() }
-                ?: MindBackend.QUIET_PARSER,
+            mindBackend = migratedMindBackend(p[KEY_MIND], p[KEY_MIND_USER_CHOSEN]),
+            mindUserChosen = p[KEY_MIND_USER_CHOSEN] ?: false,
+            allowMobileData = p[KEY_MOBILE_DATA] ?: false,
+            smartOfferDismissedAt = p[KEY_OFFER_DISMISSED] ?: 0,
+            hfAccessToken = hfAccess,
+            hfRefreshToken = hfRefresh,
+            hfExpiresAt = p[KEY_HF_EXPIRES] ?: 0L,
+            hfOauthState = p[KEY_HF_STATE] ?: "",
+            hfPkceVerifier = hfVerifier,
             openRouterKey = openRouterKey,
             openRouterModel = p[KEY_OR_MODEL]
                 ?: "meta-llama/llama-3.2-3b-instruct:free",
@@ -132,6 +156,7 @@ class PrefsRepository(
                 ?: SttEngine.SYSTEM,
             parakeetUrl = p[KEY_PARAKEET_URL] ?: ChroniclePrefs.DEFAULT_PARAKEET_URL,
             llmUrl = p[KEY_LLM_URL] ?: ChroniclePrefs.DEFAULT_LLM_URL,
+            selectedSmartModelId = migratedSmartModelId(p[KEY_SMART_MODEL], p[KEY_MIND]),
         )
     }
 
@@ -147,7 +172,10 @@ class PrefsRepository(
     }
 
     override suspend fun setMindBackend(backend: MindBackend) {
-        context.dataStore.edit { it[KEY_MIND] = backend.name }
+        context.dataStore.edit {
+            it[KEY_MIND] = backend.name
+            it[KEY_MIND_USER_CHOSEN] = true
+        }
     }
 
     override suspend fun setOpenRouter(key: String, model: String) {
@@ -167,6 +195,38 @@ class PrefsRepository(
 
     override suspend fun setSttEngine(engine: SttEngine) {
         context.dataStore.edit { it[KEY_STT] = engine.name }
+    }
+
+    suspend fun saveHfTokens(access: String, refresh: String, expiresAt: Long) {
+        check(access.isBlank() || secretStore != null) { "Secure storage is unavailable on this phone" }
+        context.dataStore.edit {
+            it[KEY_HF_ACCESS] = seal(access)
+            it[KEY_HF_REFRESH] = seal(refresh)
+            it[KEY_HF_EXPIRES] = expiresAt
+        }
+    }
+    suspend fun saveHfChallenge(state: String, verifier: String) {
+        check(verifier.isBlank() || secretStore != null) { "Secure storage is unavailable on this phone" }
+        context.dataStore.edit {
+            it[KEY_HF_STATE] = state
+            it[KEY_HF_VERIFIER] = seal(verifier)
+        }
+    }
+    suspend fun clearHfSession() {
+        saveHfTokens("", "", 0)
+        saveHfChallenge("", "")
+    }
+
+    override suspend fun setAllowMobileData(allow: Boolean) {
+        context.dataStore.edit { it[KEY_MOBILE_DATA] = allow }
+    }
+    override suspend fun dismissSmartOffer(at: Long) {
+        context.dataStore.edit { it[KEY_OFFER_DISMISSED] = at }
+    }
+
+    override suspend fun setSelectedSmartModel(id: String) {
+        require(com.chronicle.app.mind.SmartModels.find(id) != null || id == "custom")
+        context.dataStore.edit { it[KEY_SMART_MODEL] = id }
     }
 
     override suspend fun setModelUrls(parakeetUrl: String, llmUrl: String) {
@@ -243,6 +303,14 @@ class PrefsRepository(
         val KEY_THEME = stringPreferencesKey("theme_mode")
         val KEY_NUDGE_ENABLED = booleanPreferencesKey("daily_nudge_enabled")
         val KEY_NUDGE_MINUTES = intPreferencesKey("daily_nudge_minutes")
+        val KEY_HF_ACCESS = stringPreferencesKey("hf_access_token")
+        val KEY_HF_REFRESH = stringPreferencesKey("hf_refresh_token")
+        val KEY_HF_EXPIRES = longPreferencesKey("hf_expires_at")
+        val KEY_HF_STATE = stringPreferencesKey("hf_oauth_state")
+        val KEY_HF_VERIFIER = stringPreferencesKey("hf_pkce_verifier")
+        val KEY_MIND_USER_CHOSEN = booleanPreferencesKey("mind_user_chosen")
+        val KEY_MOBILE_DATA = booleanPreferencesKey("allow_mobile_data")
+        val KEY_OFFER_DISMISSED = longPreferencesKey("smart_offer_dismissed_at")
         val KEY_MIND = stringPreferencesKey("mind_backend")
         val KEY_OR_KEY = stringPreferencesKey("openrouter_key")
         val KEY_OR_MODEL = stringPreferencesKey("openrouter_model")
@@ -251,6 +319,18 @@ class PrefsRepository(
         val KEY_CUSTOM_KEY = stringPreferencesKey("custom_key")
         val KEY_STT = stringPreferencesKey("stt_engine")
         val KEY_PARAKEET_URL = stringPreferencesKey("parakeet_url")
+        val KEY_SMART_MODEL = stringPreferencesKey("selected_smart_model_id")
         val KEY_LLM_URL = stringPreferencesKey("llm_url")
     }
+}
+
+/** The pre-catalog on-device choice was the user's custom model pack. */
+internal fun migratedSmartModelId(selected: String?, oldBackend: String?): String =
+    selected ?: if (oldBackend == MindBackend.ON_DEVICE.name) "custom"
+    else com.chronicle.app.mind.SmartModels.DEFAULT_ID
+
+/** Preserve explicit choices; migrate the old silent Basic default to Auto. */
+internal fun migratedMindBackend(raw: String?, chosen: Boolean?): MindBackend {
+    if (chosen != true && (raw == null || raw == MindBackend.QUIET_PARSER.name)) return MindBackend.AUTO
+    return raw?.let { runCatching { MindBackend.valueOf(it) }.getOrNull() } ?: MindBackend.AUTO
 }

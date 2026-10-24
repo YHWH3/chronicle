@@ -297,9 +297,31 @@ class SavePipelineTest {
         assertEquals(1, entryDao.rows.size)
         assertEquals("a quiet morning, nothing due", entryDao.rows[0].transcript)
         // The save survives — kept card shown, failure surfaced quietly.
-        assertEquals("Quiet parser", v.state.value.kept?.engineLabel)
+        assertEquals("Basic (built in)", v.state.value.kept?.engineLabel)
         assertTrue(messages.any { it is UiMessage.ExtractionFailed })
         assertTrue(taskDao.rows.isEmpty())
+    }
+
+    @Test
+    fun `suggestions are saved only after Add and Skip never creates a task`() = runTest {
+        mind.onExtract = {
+            MindResult(listOf(MindTask("Call mum", null, suggested = true),
+                MindTask("Buy milk", null, suggested = true)))
+        }
+        val v = vm()
+        v.setDraft("I should call mum. I should buy milk.")
+        v.saveDraft()
+        settle()
+        assertTrue(taskDao.rows.isEmpty())
+        val pending = v.state.value.kept!!.intentions
+        v.dismissSuggestion(pending[1].taskId!!)
+        v.acceptSuggestion(pending[0].taskId!!)
+        settle()
+        assertEquals(listOf("Call mum"), taskDao.rows.map { it.title })
+        assertTrue(!v.state.value.kept!!.intentions.single().suggested)
+        v.acceptSuggestion(pending[0].taskId!!)
+        settle()
+        assertEquals(1, taskDao.rows.size)
     }
 
     @Test

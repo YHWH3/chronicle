@@ -11,6 +11,7 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
 import androidx.room.Update
+import androidx.room.Transaction
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
@@ -83,6 +84,15 @@ interface EntryDao {
 
     @Query("UPDATE entries SET transcript = :transcript, transcriptStatus = :status WHERE id = :id")
     suspend fun updateTranscript(id: Long, transcript: String, status: String)
+
+    /** Compare and replace under one Room transaction; never overwrite a newer transcript. */
+    @Transaction
+    suspend fun replaceTranscriptIfUnchanged(id: Long, expected: String, status: String, replacement: String): Boolean {
+        val row = byId(id) ?: return false
+        if (row.transcript != expected || row.transcriptStatus != status) return false
+        updateTranscript(id, replacement, status)
+        return true
+    }
 
     @Query("UPDATE entries SET transcriptStatus = :status WHERE id = :id")
     suspend fun updateTranscriptStatus(id: Long, status: String)

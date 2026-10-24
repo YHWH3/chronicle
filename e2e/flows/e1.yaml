@@ -7,10 +7,10 @@ appId: com.chronicle.app
 - tapOn:
     point: '17%,93%'
 - tapOn: '^Write$'
-- assertVisible: 'Begin anywhere. The day will shape itself.'
+- assertVisible: 'Type your note…'
 - takeScreenshot: e1-empty-keep-before
 - tapOn: '^Keep$'
-- assertVisible: 'Begin anywhere. The day will shape itself.'
+- assertVisible: 'Type your note…'
 - takeScreenshot: e1-empty-keep-after
 - tapOn: '^Journal$'
 - takeScreenshot: e1-journal-after

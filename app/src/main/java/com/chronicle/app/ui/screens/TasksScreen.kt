@@ -50,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
@@ -60,6 +61,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
+import com.chronicle.app.ui.design.phoneTime
 import com.chronicle.app.R
 import com.chronicle.app.data.db.TaskEntity
 import com.chronicle.app.ui.design.Chron
@@ -149,14 +151,14 @@ fun TasksScreen(viewModel: TasksViewModel) {
     ) {
         item {
             Text(
-                text = "Intentions",
+                text = stringResource(R.string.todos),
                 style = type.title,
                 color = p.textPrimary,
                 modifier = Modifier.semantics { heading() },
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                text = "What you mean to do.",
+                text = stringResource(R.string.todos_subtitle),
                 style = type.serifItalic,
                 color = p.textSecondary,
             )
@@ -169,7 +171,7 @@ fun TasksScreen(viewModel: TasksViewModel) {
                 FrostedTextField(
                     value = state.draft,
                     onChange = viewModel::setDraft,
-                    placeholder = "Add an intention…",
+                    placeholder = stringResource(R.string.add_todo_placeholder),
                     singleLine = true,
                     minHeight = 52.dp,
                     onFocusChange = { fieldFocused = it },
@@ -180,7 +182,7 @@ fun TasksScreen(viewModel: TasksViewModel) {
                 Spacer(Modifier.width(12.dp))
                 LargeActionCircle(
                     icon = R.drawable.ic_plus,
-                    contentDescription = "Add intention",
+                    contentDescription = stringResource(R.string.add_todo),
                     onClick = { submit() },
                     size = 48.dp,
                     enabled = state.draft.isNotBlank() && !state.adding,
@@ -219,7 +221,7 @@ fun TasksScreen(viewModel: TasksViewModel) {
             item {
                 Spacer(Modifier.height(80.dp))
                 Text(
-                    text = "Nothing you mean to do, yet.",
+                    text = stringResource(R.string.no_todos),
                     style = type.headline,
                     color = p.textPrimary,
                 )
@@ -325,6 +327,8 @@ private fun IntentionRow(
 ) {
     val p = Chron.palette
     val type = Chron.type
+    val editLabel = stringResource(R.string.edit_todo)
+    val deleteLabel = stringResource(R.string.delete_todo)
     val done = task.done || visuallyDone
     // Past its reminder time and still open — quiet signal, no alarm colour.
     val overdue = !done && task.remindAt != null &&
@@ -341,8 +345,8 @@ private fun IntentionRow(
             .heightIn(min = 56.dp)
             .semantics {
                 customActions = listOf(
-                    CustomAccessibilityAction("Edit intention") { onEdit(); true },
-                    CustomAccessibilityAction("Delete intention") { onDelete(); true },
+                    CustomAccessibilityAction(editLabel) { onEdit(); true },
+                    CustomAccessibilityAction(deleteLabel) { onDelete(); true },
                 )
             }
             .combinedClickable(
@@ -369,7 +373,7 @@ private fun IntentionRow(
             val meta = buildList {
                 task.remindAt?.let { add(formatReminder(it)) }
                 if (overdue) add("overdue")
-                if (task.sourceEntryId != null) add("From your journal")
+                if (task.sourceEntryId != null) add(stringResource(R.string.from_note))
             }
             if (meta.isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
@@ -400,10 +404,11 @@ private fun IntentionRow(
  * keeps the stored reminder, "No reminder" clears it.
  */
 @Composable
-private fun EditIntentionDialog(
+internal fun EditIntentionDialog(
     task: TaskEntity,
     onDismiss: () -> Unit,
     onSave: (title: String, remindAt: Long?) -> Unit,
+    heading: String = stringResource(R.string.edit_todo),
 ) {
     val p = Chron.palette
     val type = Chron.type
@@ -423,7 +428,7 @@ private fun EditIntentionDialog(
         ) {
             Column(Modifier.padding(Spacing.x6)) {
                 Text(
-                    text = "Edit intention",
+                    text = heading,
                     style = type.headline,
                     color = p.textPrimary,
                 )
@@ -485,13 +490,14 @@ private fun EditIntentionDialog(
     }
 }
 
+@Composable
 private fun formatReminder(ms: Long): String {
     val at = ms.asLocalDateTime()
     val today = LocalDate.now()
-    val time = at.format(DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH))
+    val time = phoneTime(at)
     return when (at.toLocalDate()) {
         today -> "Today · $time"
         today.plusDays(1) -> "Tomorrow · $time"
-        else -> at.format(DateTimeFormatter.ofPattern("EEE d MMM · HH:mm", Locale.ENGLISH))
+        else -> at.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.ENGLISH)) + " · $time"
     }
 }

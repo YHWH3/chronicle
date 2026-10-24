@@ -1,0 +1,10 @@
+appId: com.chronicle.app
+---
+# Harness sets the phone to 12-hour time after the layout flow's 17:00 task.
+- waitForAnimationToEnd
+- tapOn: '^Journal$'
+- assertVisible: '[0-9]{1,2}:[0-9]{2} (AM|PM)'
+- takeScreenshot: journal-12-hour
+- tapOn: '^To-dos$'
+- assertVisible: 'Tomorrow · 5:00 PM[\s\S]*'
+- takeScreenshot: todos-12-hour

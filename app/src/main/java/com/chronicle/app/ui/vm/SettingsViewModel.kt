@@ -24,7 +24,10 @@ data class SettingsUiState(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val dailyNudgeEnabled: Boolean = false,
     val dailyNudgeMinutes: Int = 20 * 60,
-    val mindBackend: MindBackend = MindBackend.QUIET_PARSER,
+    val allowMobileData: Boolean = false,
+    val hfSignedIn: Boolean = false,
+    val selectedSmartModelId: String = com.chronicle.app.mind.SmartModels.DEFAULT_ID,
+    val mindBackend: MindBackend = MindBackend.AUTO,
     val openRouterKey: String = "",
     val openRouterModel: String = "",
     val customBaseUrl: String = "",
@@ -33,7 +36,7 @@ data class SettingsUiState(
     val sttEngine: SttEngine = SttEngine.SYSTEM,
     val parakeetUrl: String = "",
     val llmUrl: String = "",
-    val models: Map<ModelKind, ModelState> = emptyMap(),
+    val models: Map<String, ModelState> = emptyMap(),
     // Derived display state — mirrors MindRepository.resolve() exactly.
     val effectiveMindLabel: String = "",
     /** True when the resolved engine is a network backend (entry text leaves). */
@@ -50,6 +53,8 @@ class SettingsViewModel(
     private val mindRepository: MindSource,
     private val transcriber: LiveTranscriber,
     private val reminders: ReminderGateway,
+    val smartSetup: com.chronicle.app.mind.SmartSetupController? = null,
+    val hfAuth: com.chronicle.app.mind.HfAuthRepository? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(
@@ -66,6 +71,9 @@ class SettingsViewModel(
                     dailyNudgeEnabled = p.dailyNudgeEnabled,
                     dailyNudgeMinutes = p.dailyNudgeMinutes,
                     mindBackend = p.mindBackend,
+                    selectedSmartModelId = p.selectedSmartModelId,
+                    allowMobileData = p.allowMobileData,
+                    hfSignedIn = p.hfAccessToken.isNotBlank(),
                     openRouterKey = p.openRouterKey,
                     openRouterModel = p.openRouterModel,
                     customBaseUrl = p.customBaseUrl,
@@ -106,7 +114,34 @@ class SettingsViewModel(
     }
 
     fun setMindBackend(backend: MindBackend) {
-        viewModelScope.launch { prefsRepository.setMindBackend(backend) }
+        viewModelScope.launch {
+            if (backend == MindBackend.ON_DEVICE) prefsRepository.setSelectedSmartModel("custom")
+            prefsRepository.setMindBackend(backend)
+        }
+    }
+
+    fun selectSmartModel(id: String) {
+        viewModelScope.launch {
+            prefsRepository.setSelectedSmartModel(id)
+            prefsRepository.setMindBackend(MindBackend.ON_DEVICE)
+        }
+    }
+
+    fun installSmartModel(id: String) {
+        val model = com.chronicle.app.mind.SmartModels.find(id) ?: return
+        smartSetup?.download()
+    }
+    fun pauseSmartModel(id: String) {
+        smartSetup?.pause()
+    }
+    fun deleteSmartModel(id: String) {
+        com.chronicle.app.mind.SmartModels.find(id)?.let { model ->
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { smartSetup?.delete(model.id) }
+        }
+    }
+
+    fun signOutHf() {
+        viewModelScope.launch { hfAuth?.signOut() }
     }
 
     fun setSttEngine(engine: SttEngine) {

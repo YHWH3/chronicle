@@ -4,5 +4,5 @@ appId: com.chronicle.app
 - assertNotVisible: 'DETAILS'
 - takeScreenshot: fix4-today-no-details-assert
 - tapOn: 'Settings'
-- assertVisible: 'The quiet particulars\.'
+- assertNotVisible: 'The quiet particulars\.'
 - takeScreenshot: fix4-settings-open

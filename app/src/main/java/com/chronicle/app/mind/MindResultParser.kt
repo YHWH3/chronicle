@@ -199,12 +199,12 @@ object MindResultParser {
         s.replace("\\\"", "\"").replace("\\n", " ").replace("\\\\", "\\")
 
     /** Builds the chat payload shared by OpenRouter and OpenAI-compatible backends. */
-    fun requestBody(model: String, text: String, now: LocalDateTime): JSONObject =
+    fun requestBody(model: String, text: String, now: LocalDateTime, systemPrompt: String = MIND_PROMPT): JSONObject =
         JSONObject()
             .put("model", model)
             .put("temperature", 0.1)
             .put("messages", JSONArray()
-                .put(JSONObject().put("role", "system").put("content", MIND_PROMPT))
+                .put(JSONObject().put("role", "system").put("content", systemPrompt))
                 .put(JSONObject().put("role", "user")
                     .put("content", "Current time: $now\nCapture:\n$text")))
 }

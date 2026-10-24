@@ -42,7 +42,7 @@ import androidx.compose.ui.unit.sp
 import com.chronicle.app.ui.theme.ChronicleMotion
 
 /** Vertical space screens reserve above the floating bar. */
-val LocalBottomBarPadding = staticCompositionLocalOf { 96.dp }
+val LocalBottomBarPadding = staticCompositionLocalOf { 0.dp }
 
 @androidx.compose.runtime.Immutable
 data class NavItem(

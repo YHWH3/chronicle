@@ -2,4 +2,4 @@ appId: com.chronicle.app
 ---
 - waitForAnimationToEnd
 - tapOn: 'Settings'
-- assertVisible: 'The quiet particulars\.'
+- assertNotVisible: 'The quiet particulars\.'

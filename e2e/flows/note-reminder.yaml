@@ -1,0 +1,27 @@
+appId: com.chronicle.app
+---
+- waitForAnimationToEnd
+- tapOn: '^Journal$'
+- tapOn: 'I should call Zora \.  I should pay theatre fees \.'
+- scrollUntilVisible:
+    element: '^Find tasks$'
+    timeout: 120000
+- tapOn: '^Find tasks$'
+- assertVisible: '^Pay theatre fees$'
+- assertNotVisible: '^Call Zora$'
+- assertNotVisible: '^Add reminder$'
+- tapOn: '^Edit or set time$'
+- tapOn: '^Tomorrow$'
+- tapOn: '^Save$'
+- scrollUntilVisible:
+    element: '^Add reminder$'
+    timeout: 120000
+- assertVisible: 'Time: [\s\S]*'
+- takeScreenshot: note-reminder-preview
+- tapOn: '^Add reminder$'
+- assertVisible: 'No new tasks found\.[\s\S]*'
+- tapOn: '^Close$'
+- tapOn: '^To-dos$'
+- assertVisible: '^Pay theatre fees$'
+- assertVisible: 'Tomorrow[\s\S]*From your note'
+- takeScreenshot: note-reminder-accepted
